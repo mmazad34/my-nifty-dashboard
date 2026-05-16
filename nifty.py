@@ -436,6 +436,15 @@ def main():
     
     for tab, (index_name, ticker_sym) in zip(tabs, INDICES.items()):
         with tab:
+            # Active tab ke mutabiq live option parameters shift karna
+            pcr_value, put_vol, call_vol = get_dhan_live_pcr(index_name)
+            
+            if put_vol > call_vol:
+                pcr_signal = f"BULLISH ({index_name} Put Volume is Higher)"
+                pcr_color = "#2efc03"
+            else:
+                pcr_signal = f"BEARISH ({index_name} Call Volume is Higher)"
+                pcr_color = "#ff3333"
             # Fetch & compute data matrices
             raw_data = fetch_index_data(ticker_sym, tf_selection)
             
