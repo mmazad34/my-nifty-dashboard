@@ -30,12 +30,6 @@ if not st.session_state["authenticated"]:
     st.stop()  # Agar password sahi nahi hai toh code yahi ruk jayega
 
 # ==========================================
-# # CONFIGURATION & CONSTANTS (Aapka Purana Code Yahan Se Shuru Hoga)
-# ==========================================
-st.set_page_config(
-    page_title="Pro Indian Index Dashboard",
-
-# ==========================================
 # CONFIGURATION & CONSTANTS
 # ==========================================
 st.set_page_config(
