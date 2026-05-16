@@ -5,3 +5,4 @@ numpy
 plotly
 scipy
 git+https://github.com/bukosabino/ta.git
+dhanhq
