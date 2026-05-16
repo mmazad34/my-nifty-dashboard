@@ -10,6 +10,30 @@ except ImportError:
     import ta as ta
 from datetime import datetime
 import io
+from dhanhq import dhanhq
+
+# ==========================================
+# 🔒 SECURITY SYSTEM (PASSWORD WALL)
+# ==========================================
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+
+if not st.session_state["authenticated"]:
+    st.title("🔒 Authorized Access Only")
+    user_input = st.text_input("Enter Admin Password:", type="password")
+    if st.button("Login"):
+        if user_input == st.secrets["MY_APP_PASSWORD"]:
+            st.session_state["authenticated"] = True
+            st.rerun()
+        else:
+            st.error("❌ Wrong Password! Access Denied.")
+    st.stop()  # Agar password sahi nahi hai toh code yahi ruk jayega
+
+# ==========================================
+# # CONFIGURATION & CONSTANTS (Aapka Purana Code Yahan Se Shuru Hoga)
+# ==========================================
+st.set_page_config(
+    page_title="Pro Indian Index Dashboard",
 
 # ==========================================
 # CONFIGURATION & CONSTANTS
@@ -72,7 +96,47 @@ def fetch_index_data(ticker_symbol, timeframe):
     except Exception as e:
         st.error(f"Error fetching data for {ticker_symbol}: {e}")
         return None
+# ==========================================================
+# 🟢 DHAN REAL-TIME STREAMING ENGINE & AUTOMATIC PCR LOGIC
+# ==========================================================
+@st.cache_resource
+def initialize_dhan_stream():
+    """Dhan API se live streaming connection build karne ke liye"""
+    try:
+        dhan = dhanhq(st.secrets["DHAN_CLIENT_ID"], st.secrets["DHAN_ACCESS_TOKEN"])
+        # NIFTY 50 Option Chain data streaming bina loop ke execute karne ke liye
+        option_data = dhan.get_option_chain(underlying_key=26000, underlying_type="INDEX")
+        return option_data
+    except Exception as e:
+        return None
 
+# Background live response fetch karna
+live_chain_snapshot = initialize_dhan_stream()
+
+# Default values agar market closed ho
+call_vol = 100000
+put_vol = 100000
+pcr_value = 1.0
+
+if live_chain_snapshot and live_chain_snapshot.get('status') == 'success':
+    chain_data = live_chain_snapshot.get('data', [])
+    
+    # Automatic dynamic sum calculations
+    call_vol = sum([strike.get('ce_volume', 0) for strike in chain_data])
+    put_vol = sum([strike.get('pe_volume', 0) for strike in chain_data])
+    
+    if call_vol > 0:
+        pcr_value = round(put_vol / call_vol, 2)
+
+# --- AUTOMATIC BULLISH / BEARISH TEXT SIGNAL GENERATION ---
+if put_vol > call_vol:
+    pcr_signal = "BULLISH (Put Volume is Higher)"
+    pcr_color = "#2efc03"  # Solid Bright Green
+    pcr_badge = "🟢 STRONGLY BULLISH MOMENTUM"
+else:
+    pcr_signal = "BEARISH (Call Volume is Higher)"
+    pcr_color = "#ff3333"  # Solid Red
+    pcr_badge = "🔴 STRONGLY BEARISH MOMENTUM"
 def apply_indicators(df):
     # Avoid working on views
     df = df.copy()
@@ -200,6 +264,37 @@ def get_trend_and_sentiment(df):
         
     return trend, sentiment, color
 
+# ==========================================================
+# 🖥️ REAL-TIME PCR DISPLAY & AUTOMATIC TREND GAUGES
+# ==========================================================
+st.markdown("---")
+st.markdown("### ⚡ Live Stream Option Chain Terminal (Dhan Real-time)")
+
+# Screen layout setting metrics ko beautifully arrange karne ke liye
+c_vol1, c_vol2 = st.columns([1, 2])
+
+with c_vol1:
+    st.metric(
+        label="📊 CALCULATED PCR VALUE", 
+        value=f"{pcr_value}",
+        delta="BULLISH MOMENTUM" if pcr_value > 1 else "BEARISH MOMENTUM",
+        delta_color="normal" if pcr_value > 1 else "inverse"
+    )
+    st.write(f"🟢 **Total Put Volume:** {put_vol:,}")
+    st.write(f"🔴 **Total Call Volume:** {call_vol:,}")
+
+with c_vol2:
+    # Automatic Direction Sentiment Display Box
+    st.markdown("**AUTOMATIC MARKET DIRECTION SENTIMENT:**")
+    st.markdown(
+        f"<div style='background-color: #0f172a; padding: 22px; border-radius: 12px; border: 2px solid {pcr_color}; text-align: center;'>"
+        f"<h2 style='color: {pcr_color}; margin: 0; font-size: 30px; font-weight: 900;'>{pcr_signal}</h2>"
+        f"<p style='color: #94a3b8; margin-top: 8px; margin-bottom: 0px; font-size: 15px;'>🟢 Put Volume jyada to CALL UPAR | 🔴 Call Volume jyada to PUT NEECHE</p>"
+        f"</div>", 
+        unsafe_allow_html=True
+    )
+
+st.markdown("---")
 # ==========================================
 # TRADINGVIEW CHART ENGINE
 # ==========================================
