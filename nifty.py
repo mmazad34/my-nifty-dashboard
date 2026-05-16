@@ -4,12 +4,7 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as gr
 from plotly.subplots import make_subplots
-try:
-    import ta
-except ImportError:
-    pass
 from datetime import datetime
-import io
 import random
 from dhanhq import dhanhq
 
@@ -38,7 +33,7 @@ if not st.session_state["authenticated"]:
     st.stop()
 
 # ==========================================
-# CONFIGURATION & CONSTANTS
+# CONFIGURATION & CONSTANTS (Pure Indian & Global Commodities)
 # ==========================================
 st.set_page_config(
     page_title="Pro Indian Index Dashboard",
@@ -47,11 +42,10 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Apply global heartbeat refresh safely if available
 if has_refresh:
     st_autorefresh(interval=5000, limit=200, key="global_market_pulse")
 
-# Dark Theme Injection
+# Dark Theme Styling
 st.markdown("""
     <style>
         .stApp { background-color: #0c1017; color: #c9d1d9; }
@@ -153,24 +147,32 @@ def get_dhan_live_pcr_streaming(selected_tab):
     except:
         return 1.00, 5000000, 5000000
 
+# ==========================================
+# 📐 PURE MATHEMATICAL INDICATORS (NO TA-LIB DEPENDENCY)
+# ==========================================
 def apply_indicators(df):
     df = df.copy()
-    try:
-        if len(df) >= 200:
-            df['EMA_200'] = ta.trend.ema_indicator(df['Close'], window=200)
-        else:
-            df['EMA_200'] = ta.trend.ema_indicator(df['Close'], window=len(df)//2 if len(df) > 2 else 2)
-        df['RSI'] = ta.momentum.rsi(df['Close'], window=14)
-        macd_obj = ta.trend.MACD(df['Close'])
-        df['MACD'] = macd_obj.macd()
-        df['MACD_Signal'] = macd_obj.macd_signal()
-        df['MACD_Hist'] = macd_obj.macd_diff()
-    except:
-        df['EMA_200'] = df['Close'].rolling(window=20).mean()
-        df['RSI'] = 50
-        df['MACD'] = 0
-        df['MACD_Signal'] = 0
-        df['MACD_Hist'] = 0
+    
+    # 1. EMA 200 Calculation
+    df['EMA_200'] = df['Close'].ewm(span=200, adjust=False).mean()
+    if len(df) < 200:
+        df['EMA_200'] = df['Close'].ewm(span=len(df)//2 if len(df) > 2 else 2, adjust=False).mean()
+    
+    # 2. Pure Native RSI Calculation
+    delta = df['Close'].diff()
+    gain = (delta.where(delta > 0, 0)).ewm(alpha=1/14, adjust=False).mean()
+    loss = (-delta.where(delta < 0, 0)).ewm(alpha=1/14, adjust=False).mean()
+    rs = gain / (loss + 1e-10)
+    df['RSI'] = 100 - (100 / (1 + rs))
+    df['RSI'] = df['RSI'].fillna(50)
+    
+    # 3. Pure Native MACD Calculation
+    ema12 = df['Close'].ewm(span=12, adjust=False).mean()
+    ema26 = df['Close'].ewm(span=26, adjust=False).mean()
+    df['MACD'] = ema12 - ema26
+    df['MACD_Signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
+    df['MACD_Hist'] = df['MACD'] - df['MACD_Signal']
+    
     return df
 
 def calculate_fibonacci(df):
@@ -198,16 +200,20 @@ def calculate_volume_profile(df, bins=20):
 def generate_signals(df):
     df = df.copy()
     signals = ["HOLD"] * len(df)
+    
     for i in range(1, len(df)):
         rsi_curr, rsi_prev = df['RSI'].iloc[i], df['RSI'].iloc[i-1]
         macd_curr, macd_prev = df['MACD'].iloc[i], df['MACD'].iloc[i-1]
         sig_curr, sig_prev = df['MACD_Signal'].iloc[i], df['MACD_Signal'].iloc[i-1]
         close, ema = df['Close'].iloc[i], df['EMA_200'].iloc[i]
         
+        # Bullish conditions
         if (rsi_prev < 30 and rsi_curr >= 30) or (macd_prev < sig_prev and macd_curr >= sig_curr):
             signals[i] = "BUY" if close < ema else "STRONG BUY"
+        # Bearish conditions
         elif (rsi_prev > 70 and rsi_curr <= 70) or (macd_prev > sig_prev and macd_curr <= sig_curr):
             signals[i] = "SELL" if close > ema else "STRONG SELL"
+            
     df['Signal'] = signals
     return df
 
@@ -232,12 +238,12 @@ def plot_tradingview_chart(df, name, fib_levels, bin_centers, volumes, poc_price
     fig.add_trace(gr.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Price"), row=1, col=1)
     fig.add_trace(gr.Scatter(x=df.index, y=df['EMA_200'], line=dict(color='#ff9f43', width=1.5), name='EMA 200'), row=1, col=1)
     
-    # 🎯 2. Plot Fibonacci Retracement Levels
+    # 🎯 2. Fibonacci Retracement Bands
     colors_fib = ['#ff4d4d', '#ff9f43', '#ffcd3c', '#1dd1a1', '#10ac84', '#54a0ff', '#5f27cd']
     for (lbl, val), clr in zip(fib_levels.items(), colors_fib):
         fig.add_trace(gr.Scatter(x=[df.index[0], df.index[-1]], y=[val, val], mode="lines", line=dict(color=clr, width=1, dash="dash"), name=f"Fib {lbl}"), row=1, col=1)
         
-    # 📊 3. Volume Profile Point of Control (POC)
+    # 📊 3. Volume Profile Point of Control (POC) Line
     fig.add_trace(gr.Scatter(x=[df.index[0], df.index[-1]], y=[poc_price, poc_price], mode="lines", line=dict(color="#00d2d3", width=1.5, dash="dot"), name="Volume POC"), row=1, col=1)
     
     # 🟢 🔴 4. Plot Buy/Sell Signals directly on Candlestick
@@ -245,9 +251,9 @@ def plot_tradingview_chart(df, name, fib_levels, bin_centers, volumes, poc_price
     sells = df[df['Signal'].isin(["SELL", "STRONG SELL"])]
     
     if not buys.empty:
-        fig.add_trace(gr.Scatter(x=buys.index, y=buys['Low'] * 0.998, mode="markers", marker=dict(symbol="triangle-up", size=11, color="#2efc03"), name="Algo BUY"), row=1, col=1)
+        fig.add_trace(gr.Scatter(x=buys.index, y=buys['Low'] * 0.998, mode="markers", marker=dict(symbol="triangle-up", size=12, color="#2efc03"), name="Algo BUY"), row=1, col=1)
     if not sells.empty:
-        fig.add_trace(gr.Scatter(x=sells.index, y=sells['High'] * 1.002, mode="markers", marker=dict(symbol="triangle-down", size=11, color="#ff3333"), name="Algo SELL"), row=1, col=1)
+        fig.add_trace(gr.Scatter(x=sells.index, y=sells['High'] * 1.002, mode="markers", marker=dict(symbol="triangle-down", size=12, color="#ff3333"), name="Algo SELL"), row=1, col=1)
 
     # 📉 5. RSI Subplot
     fig.add_trace(gr.Scatter(x=df.index, y=df['RSI'], line=dict(color='#a55eed', width=1.5), name='RSI'), row=2, col=1)
@@ -258,75 +264,11 @@ def plot_tradingview_chart(df, name, fib_levels, bin_centers, volumes, poc_price
     fig.add_trace(gr.Scatter(x=df.index, y=df['MACD'], line=dict(color='#2685ff', width=1.5), name='MACD'), row=3, col=1)
     fig.add_trace(gr.Scatter(x=df.index, y=df['MACD_Signal'], line=dict(color='#ff3b30', width=1.5), name='Signal'), row=3, col=1)
     
-    fig.update_layout(template="plotly_dark", paper_bgcolor="#0c1017", plot_bgcolor="#0c1017", height=750, margin=dict(l=30, r=30, t=10, b=10), xaxis=dict(rangeslider=dict(visible=False), gridcolor="#21262d"), yaxis=dict(side="right", gridcolor="#21262d"), yaxis2=dict(side="right", gridcolor="#21262d", range=[0, 100]), yaxis3=dict(side="right", gridcolor="#21262d"))
-    return fig
-
-# ==========================================
-# APP UI VIEW CONTROLLER
-# ==========================================
-def main():
-    st.sidebar.markdown("<h2 style='color:#ffffff; text-align:center;'>🔧 HUB</h2>", unsafe_allow_html=True)
-    tf_selection = st.sidebar.selectbox("⏱️ Select Chart Timeframe", list(TIMEFRAMES.keys()), index=1)
-    
-    if not has_refresh:
-        if st.sidebar.button("🔄 Manual Force Tick"):
-            st.rerun()
-
-    st.markdown("<h1 style='text-align: center; color: #ffffff;'>📈 INDIAN INSTITUTIONAL INDEX DASHBOARD</h1>", unsafe_allow_html=True)
-    st.divider()
-
-    tabs = st.tabs(list(INDICES.keys()))
-    
-    for tab, index_name in zip(tabs, list(INDICES.keys())):
-        with tab:
-            ticker_sym = INDICES[index_name]
-            pcr_value, call_vol, put_vol = get_dhan_live_pcr_streaming(index_name)
-            pcr_color = "#2efc03" if pcr_value >= 1.0 else "#ff3333"
-            pcr_signal = "BULLISH (Put Higher)" if pcr_value >= 1.0 else "BEARISH (Call Higher)"
-
-            c_vol1, c_vol2 = st.columns([1, 2])
-            with c_vol1:
-                st.metric(label="📊 CALCULATED PCR RATIO", value=f"{pcr_value}")
-                st.write(f"🟢 **Put/Buy Vol:** {put_vol:,}")
-                st.write(f"🔴 **Call/Sell Vol:** {call_vol:,}")
-
-            with c_vol2:
-                st.markdown(f"<div style='background-color: #0f172a; padding: 22px; border-radius: 12px; border: 2px solid {pcr_color}; text-align: center;'><h2 style='color: {pcr_color}; margin: 0; font-size: 24px;'>{pcr_signal}</h2></div>", unsafe_allow_html=True)
-
-            st.markdown("---")
-
-            raw_data = fetch_index_data(ticker_sym, tf_selection)
-            if raw_data is None or len(raw_data) < 5:
-                st.info(f"Syncing connection streams for {index_name}... Tab initialized.")
-                continue
-                
-            calculated_data = apply_indicators(raw_data)
-            final_df = generate_signals(calculated_data)
-            latest_row = final_df.iloc[-1]
-            prev_row = final_df.iloc[-2]
-            
-            ltp = latest_row['Close']
-            change = ltp - prev_row['Close']
-            pct_change = (change / prev_row['Close']) * 100
-            
-            fib_levels = calculate_fibonacci(final_df)
-            bin_centers, volumes, poc_price = calculate_volume_profile(final_df)
-            trend_str, sentiment, sentiment_color = get_trend_and_sentiment(final_df)
-
-            m1, m2, m3, m4 = st.columns(4)
-            with m1: 
-                st.metric(label=f"{index_name} LTP", value=f"{round(ltp, 2)}", delta=f"{round(change, 2)} ({pct_change:+.2f}%)")
-            with m2: 
-                st.markdown(f"**Trend**<br><h4 style='color: #ffffff; margin-top:5px;'>{trend_str}</h4>", unsafe_allow_html=True)
-            with m3: 
-                st.markdown(f"**Sentiment**<br><h4 style='color: {sentiment_color}; margin-top:5px;'>{sentiment}</h4>", unsafe_allow_html=True)
-            with m4:
-                sig_labels = {"STRONG BUY": "#238636", "BUY": "#2ea043", "HOLD": "#8b949e", "SELL": "#da3633", "STRONG SELL": "#f85149"}
-                curr_sig = latest_row['Signal']
-                st.markdown(f"**System Signal**<br><div style='background-color:{sig_labels.get(curr_sig, '#161b22')}; padding:8px; border-radius:5px; text-align:center; color:white; font-weight:bold; margin-top:5px;'>{curr_sig}</div>", unsafe_allow_html=True)
-
-            st.divider()
-            st.plotly_chart(plot_tradingview_chart(final_df, index_name, fib_levels, bin_centers, volumes, poc_price), use_container_width=True, key=f"chart_{index_name}")
-
-if __name__ == "__main__":
-    main()
+    fig.update_layout(
+        template="plotly_dark", 
+        paper_bgcolor="#0c1017", 
+        plot_bgcolor="#0c1017", 
+        height=750, 
+        margin=dict(l=30, r=30, t=10, b=10), 
+        xaxis=dict(rangeslider=dict(visible=False), gridcolor="#21262d"), 
+        yaxis
