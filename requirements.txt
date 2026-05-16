@@ -3,5 +3,5 @@ yfinance
 pandas
 numpy
 plotly
-ta
-pandas_ta
+pandas-ta==0.3.14b
+scipy
