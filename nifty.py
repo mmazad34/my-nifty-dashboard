@@ -61,10 +61,16 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# ==========================================
+# 📊 MULTI-ASSET TICKER MATRIX
+# ==========================================
 INDICES = {
     "NIFTY 50": "^NSEI",
     "BANK NIFTY": "^NSEBANK",
-    "SENSEX": "^BSESN"
+    "SENSEX": "^BSESN",
+    "GOLD": "GC=F",
+    "COMMODITIES (CRUDE)": "CL=F",
+    "BITCOIN (BTC)": "BTC-USD"
 }
 
 TIMEFRAMES = {
