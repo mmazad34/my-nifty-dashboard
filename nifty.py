@@ -4,7 +4,10 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as gr
 from plotly.subplots import make_subplots
-import ta
+try:
+    import ta
+except ImportError:
+    import ta as ta
 from datetime import datetime
 import io
 
