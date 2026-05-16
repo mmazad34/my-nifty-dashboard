@@ -1,5 +1,7 @@
 streamlit
 yfinance
+pandas
+numpy
 plotly
 scipy
-TA-Lib
+git+https://github.com/bukosabino/ta.git
