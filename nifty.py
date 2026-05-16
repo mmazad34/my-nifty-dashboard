@@ -61,14 +61,13 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Multi-Asset Configuration Matrix
+# Multi-Asset Configuration Matrix (Bitcoin Removed)
 INDICES = {
     "NIFTY 50": "^NSEI",
     "BANK NIFTY": "^NSEBANK",
     "SENSEX": "^BSESN",
     "GOLD": "GC=F",
-    "COMMODITIES (CRUDE)": "CL=F",
-    "BITCOIN (BTC)": "BTC-USD"
+    "COMMODITIES (CRUDE)": "CL=F"
 }
 
 TIMEFRAMES = {
@@ -78,14 +77,13 @@ TIMEFRAMES = {
     "1d": {"period": "2y", "interval": "1d"}
 }
 
-# Dhan Live Streaming Terminal Assets Map
+# Dhan Live Streaming Terminal Assets Map (Bitcoin Removed)
 DHAN_ASSET_MAP = {
     "NIFTY 50": {"key": 26000, "type": "INDEX"},
     "BANK NIFTY": {"key": 26001, "type": "INDEX"},
     "SENSEX": {"key": 26002, "type": "INDEX"},
     "GOLD": {"key": 55101, "type": "COMMODITY"},
-    "COMMODITIES (CRUDE)": {"key": 55201, "type": "COMMODITY"},
-    "BITCOIN (BTC)": {"key": "BTC-USD", "type": "CRYPTO"}
+    "COMMODITIES (CRUDE)": {"key": 55201, "type": "COMMODITY"}
 }
 
 # ==========================================
@@ -111,25 +109,6 @@ def get_dhan_live_pcr(selected_tab):
         # Step 1: Map the current active tab to Dhan security codes
         asset_info = DHAN_ASSET_MAP.get(selected_tab, DHAN_ASSET_MAP["NIFTY 50"])
         
-       # 🪙 1. Crypto Engine Live Fetch (Har second volume random/live change hoga)
-        if asset_info["type"] == "CRYPTO":
-            try:
-                btc = yf.Ticker("BTC-USD")
-                # fast_info se current real-time metrics uthana
-                live_price = btc.fast_info.last_price
-                
-                # Dynamic Volume generation based on price movement to make it look active
-                seed_vol = int(live_price * 150)
-                simulated_call = int(seed_vol * 0.48) + (int(datetime.now().second) * 100)
-                simulated_put = int(seed_vol * 0.52) - (int(datetime.now().second) * 50)
-                
-                pcr_val = round(simulated_put / simulated_call, 2)
-                return pcr_val, simulated_call, simulated_put
-            except:
-                # Agar Yahoo Finance temporary block kare toh unique fake matrix taaki static na lage
-                sec_factor = datetime.now().second
-                return round(0.95 + (sec_factor / 1000), 2), 5100000 + (sec_factor * 200), 5300000 - (sec_factor * 100)
-
         # 🎛️ Commodities Fallback
         if asset_info["type"] == "COMMODITY":
             if selected_tab == "GOLD":
@@ -368,7 +347,7 @@ def main():
     
     for tab, (index_name, ticker_sym) in zip(tabs, INDICES.items()):
         with tab:
-            # 🟢 Live data fetch occurs strictly INSIDE the loop, using dynamic asset name argument
+            # Live data fetch occurs strictly INSIDE the loop, using dynamic asset name argument
             pcr_value, call_vol, put_vol = get_dhan_live_pcr(index_name)
             
             if put_vol > call_vol:
@@ -389,7 +368,7 @@ def main():
                     delta="BULLISH MOMENTUM" if pcr_value > 1 else "BEARISH MOMENTUM",
                     delta_color="normal" if pcr_value > 1 else "inverse"
                 )
-                if "BITCOIN" in index_name or "GOLD" in index_name or "CRUDE" in index_name:
+                if "GOLD" in index_name or "CRUDE" in index_name:
                     st.write(f"🟢 **Total Buy Volume:** {put_vol:,}")
                     st.write(f"🔴 **Total Sell Volume:** {call_vol:,}")
                 else:
