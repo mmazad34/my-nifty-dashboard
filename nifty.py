@@ -268,7 +268,8 @@ def plot_tradingview_chart(df, name, fib_levels, bin_centers, volumes, poc_price
         template="plotly_dark", 
         paper_bgcolor="#0c1017", 
         plot_bgcolor="#0c1017", 
-        height=750,) 
+        height=750,
+    )
         margin=dict(l=30, r=30, t=10, b=10), 
         xaxis=dict(rangeslider=dict(visible=False), gridcolor="#21262d"), 
         yaxis
