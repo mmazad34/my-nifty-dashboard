@@ -436,15 +436,44 @@ def main():
     
     for tab, (index_name, ticker_sym) in zip(tabs, INDICES.items()):
         with tab:
-            # Active tab ke mutabiq live option parameters shift karna
-            pcr_value, put_vol, call_vol = get_dhan_live_pcr(index_name)
+            with tab:
+            # 🟢 Har asset ka dynamic live data terminal link yahan chalega
+            pcr_value, call_vol, put_vol = get_dhan_live_pcr(index_name)
             
             if put_vol > call_vol:
-                pcr_signal = f"BULLISH ({index_name} Put Volume is Higher)"
+                pcr_signal = f"BULLISH ({index_name} Vol Support)"
                 pcr_color = "#2efc03"
             else:
-                pcr_signal = f"BEARISH ({index_name} Call Volume is Higher)"
+                pcr_signal = f"BEARISH ({index_name} Vol Pressure)"
                 pcr_color = "#ff3333"
+
+            # ⚡ Purana dynamic real-time display section jo aapko chahiye tha
+            st.markdown("### ⚡ Live Stream Option Chain Terminal (Dhan Real-time)")
+            c_vol1, c_vol2 = st.columns([1, 2])
+
+            with c_vol1:
+                st.metric(
+                    label="📊 CALCULATED PCR VALUE", 
+                    value=f"{pcr_value}",
+                    delta="BULLISH" if pcr_value > 1 else "BEARISH",
+                    delta_color="normal" if pcr_value > 1 else "inverse"
+                )
+                if "BITCOIN" in index_name or "GOLD" in index_name or "CRUDE" in index_name:
+                    st.write(f"🟢 **Buy Orders Vol:** {put_vol:,}")
+                    st.write(f"🔴 **Sell Orders Vol:** {call_vol:,}")
+                else:
+                    st.write(f"🟢 **Total Put Volume:** {put_vol:,}")
+                    st.write(f"🔴 **Total Call Volume:** {call_vol:,}")
+            with c_vol2:
+                st.markdown("**AUTOMATIC MARKET DIRECTION SENTIMENT:**")
+                st.markdown(
+                    f"<div style='background-color: #0f172a; padding: 22px; border-radius: 12px; border: 2px solid {pcr_color}; text-align: center;'>"
+                    f"<h2 style='color: {pcr_color}; margin: 0; font-size: 28px; font-weight: 900;'>{pcr_signal}</h2>"
+                    f"<p style='color: #94a3b8; margin-top: 8px; margin-bottom: 0px; font-size: 14px;'>🔄 Active Live Sync Matrix running for {index_name}</p>"
+                    f"</div>", 
+                    unsafe_allow_html=True
+                )
+            st.markdown("---")
             # Fetch & compute data matrices
             raw_data = fetch_index_data(ticker_sym, tf_selection)
             
