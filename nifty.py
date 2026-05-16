@@ -80,6 +80,18 @@ TIMEFRAMES = {
     "1d": {"period": "2y", "interval": "1d"}
 }
 
+# ==========================================================
+# 🎛️ DHAN API LIVE ROUTING MATRIX
+# ==========================================================
+DHAN_ASSET_MAP = {
+    "NIFTY 50": {"key": 26000, "type": "INDEX"},
+    "BANK NIFTY": {"key": 26001, "type": "INDEX"},
+    "SENSEX": {"key": 26002, "type": "INDEX"},
+    "GOLD": {"key": 55101, "type": "COMMODITY"},
+    "COMMODITIES (CRUDE)": {"key": 55201, "type": "COMMODITY"},
+    "BITCOIN (BTC)": {"key": "BTC-USD", "type": "CRYPTO"}
+}
+
 # ==========================================
 # DATA CORE ENGINE & INDICATORS
 # ==========================================
