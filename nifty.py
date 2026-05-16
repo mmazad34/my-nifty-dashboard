@@ -277,7 +277,6 @@ def get_trend_and_sentiment(df):
         trend = "BULLISH" if latest_close > latest_ema else "BEARISH"
     else:
         trend = "NEUTRAL (Insufficient Historical Rows)"
-        
     # Sentiment Weightage System
     score = 0
     if trend == "BULLISH": score += 2
@@ -323,7 +322,7 @@ with c_vol2:
         f"<div style='background-color: #0f172a; padding: 22px; border-radius: 12px; border: 2px solid {pcr_color}; text-align: center;'>"
         f"<h2 style='color: {pcr_color}; margin: 0; font-size: 30px; font-weight: 900;'>{pcr_signal}</h2>"
         f"<p style='color: #94a3b8; margin-top: 8px; margin-bottom: 0px; font-size: 15px;'>🟢 Put Volume jyada to CALL UPAR | 🔴 Call Volume jyada to PUT NEECHE</p>"
-        f"</div>", 
+        f"</div>" 
         unsafe_allow_html=True
     )
 
