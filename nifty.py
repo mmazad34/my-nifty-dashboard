@@ -166,7 +166,6 @@ def apply_indicators(df):
         df['MACD_Signal'] = macd_obj.macd_signal()
         df['MACD_Hist'] = macd_obj.macd_diff()
     except:
-        # Fallback if ta library is building on cloud
         df['EMA_200'] = df['Close'].rolling(window=20).mean()
         df['RSI'] = 50
         df['MACD'] = 0
@@ -216,7 +215,6 @@ def get_trend_and_sentiment(df):
     latest_rsi = df['RSI'].iloc[-1]
     latest_close = df['Close'].iloc[-1]
     latest_ema = df['EMA_200'].iloc[-1]
-    macd_hist = df['MACD_Hist'].iloc[-1]
     
     trend = "BULLISH" if pd.notna(latest_ema) and latest_close > latest_ema else "BEARISH"
     
@@ -230,26 +228,37 @@ def get_trend_and_sentiment(df):
 def plot_tradingview_chart(df, name, fib_levels, bin_centers, volumes, poc_price):
     fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.04, row_heights=[0.55, 0.20, 0.25])
     
-    # Main Candlestick Chart
+    # 🕯️ 1. Main Candlestick Chart
     fig.add_trace(gr.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Price"), row=1, col=1)
     fig.add_trace(gr.Scatter(x=df.index, y=df['EMA_200'], line=dict(color='#ff9f43', width=1.5), name='EMA 200'), row=1, col=1)
     
-    # 🎯 Plot Fibonacci Retracement Levels
+    # 🎯 2. Plot Fibonacci Retracement Levels
     colors_fib = ['#ff4d4d', '#ff9f43', '#ffcd3c', '#1dd1a1', '#10ac84', '#54a0ff', '#5f27cd']
     for (lbl, val), clr in zip(fib_levels.items(), colors_fib):
         fig.add_trace(gr.Scatter(x=[df.index[0], df.index[-1]], y=[val, val], mode="lines", line=dict(color=clr, width=1, dash="dash"), name=f"Fib {lbl}"), row=1, col=1)
         
-    # 📊 Volume Profile Point of Control (POC)
+    # 📊 3. Volume Profile Point of Control (POC)
     fig.add_trace(gr.Scatter(x=[df.index[0], df.index[-1]], y=[poc_price, poc_price], mode="lines", line=dict(color="#00d2d3", width=1.5, dash="dot"), name="Volume POC"), row=1, col=1)
     
-    # RSI Subplot
-    fig.add_trace(gr.Scatter(x=df.index, y=df['RSI'], line=dict(color='#a55eed', width=1.5), name='RSI'), row=2, col=1)
+    # 🟢 🔴 4. Plot Buy/Sell Signals directly on Candlestick
+    buys = df[df['Signal'].isin(["BUY", "STRONG BUY"])]
+    sells = df[df['Signal'].isin(["SELL", "STRONG SELL"])]
     
-    # MACD Subplot
+    if not buys.empty:
+        fig.add_trace(gr.Scatter(x=buys.index, y=buys['Low'] * 0.998, mode="markers", marker=dict(symbol="triangle-up", size=11, color="#2efc03"), name="Algo BUY"), row=1, col=1)
+    if not sells.empty:
+        fig.add_trace(gr.Scatter(x=sells.index, y=sells['High'] * 1.002, mode="markers", marker=dict(symbol="triangle-down", size=11, color="#ff3333"), name="Algo SELL"), row=1, col=1)
+
+    # 📉 5. RSI Subplot
+    fig.add_trace(gr.Scatter(x=df.index, y=df['RSI'], line=dict(color='#a55eed', width=1.5), name='RSI'), row=2, col=1)
+    fig.add_trace(gr.Scatter(x=[df.index[0], df.index[-1]], y=[70, 70], mode="lines", line=dict(color="rgba(255, 59, 48, 0.4)", width=1, dash="dash"), showlegend=False), row=2, col=1)
+    fig.add_trace(gr.Scatter(x=[df.index[0], df.index[-1]], y=[30, 30], mode="lines", line=dict(color="rgba(46, 252, 3, 0.4)", width=1, dash="dash"), showlegend=False), row=2, col=1)
+    
+    # 🎛️ 6. MACD Subplot
     fig.add_trace(gr.Scatter(x=df.index, y=df['MACD'], line=dict(color='#2685ff', width=1.5), name='MACD'), row=3, col=1)
     fig.add_trace(gr.Scatter(x=df.index, y=df['MACD_Signal'], line=dict(color='#ff3b30', width=1.5), name='Signal'), row=3, col=1)
     
-    fig.update_layout(template="plotly_dark", paper_bgcolor="#0c1017", plot_bgcolor="#0c1017", height=700, margin=dict(l=30, r=30, t=10, b=10), xaxis=dict(rangeslider=dict(visible=False), gridcolor="#21262d"), yaxis=dict(side="right", gridcolor="#21262d"), yaxis2=dict(side="right", gridcolor="#21262d"), yaxis3=dict(side="right", gridcolor="#21262d"))
+    fig.update_layout(template="plotly_dark", paper_bgcolor="#0c1017", plot_bgcolor="#0c1017", height=750, margin=dict(l=30, r=30, t=10, b=10), xaxis=dict(rangeslider=dict(visible=False), gridcolor="#21262d"), yaxis=dict(side="right", gridcolor="#21262d"), yaxis2=dict(side="right", gridcolor="#21262d", range=[0, 100]), yaxis3=dict(side="right", gridcolor="#21262d"))
     return fig
 
 # ==========================================
@@ -314,7 +323,7 @@ def main():
             with m4:
                 sig_labels = {"STRONG BUY": "#238636", "BUY": "#2ea043", "HOLD": "#8b949e", "SELL": "#da3633", "STRONG SELL": "#f85149"}
                 curr_sig = latest_row['Signal']
-                st.markdown(f"**System Signal**<br><div style='background-color:{sig_labels.get(curr_sig, \"#161b22\")}; padding:8px; border-radius:5px; text-align:center; color:white; font-weight:bold; margin-top:5px;'>{curr_sig}</div>", unsafe_allow_html=True)
+                st.markdown(f"**System Signal**<br><div style='background-color:{sig_labels.get(curr_sig, '#161b22')}; padding:8px; border-radius:5px; text-align:center; color:white; font-weight:bold; margin-top:5px;'>{curr_sig}</div>", unsafe_allow_html=True)
 
             st.divider()
             st.plotly_chart(plot_tradingview_chart(final_df, index_name, fib_levels, bin_centers, volumes, poc_price), use_container_width=True, key=f"chart_{index_name}")
