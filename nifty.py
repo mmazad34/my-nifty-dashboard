@@ -436,10 +436,8 @@ def main():
     
     for tab, (index_name, ticker_sym) in zip(tabs, INDICES.items()):
         with tab:
-            with tab:
             # 🟢 Har asset ka dynamic live data terminal link yahan chalega
             pcr_value, call_vol, put_vol = get_dhan_live_pcr(index_name)
-            
             if put_vol > call_vol:
                 pcr_signal = f"BULLISH ({index_name} Vol Support)"
                 pcr_color = "#2efc03"
