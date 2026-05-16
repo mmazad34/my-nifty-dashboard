@@ -271,4 +271,4 @@ def plot_tradingview_chart(df, name, fib_levels, bin_centers, volumes, poc_price
         height=750, 
         margin=dict(l=30, r=30, t=10, b=10), 
         xaxis=dict(rangeslider=dict(visible=False), gridcolor="#21262d"), 
-        yaxis
+        yaxis)
