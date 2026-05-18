@@ -37,7 +37,7 @@ if not st.session_state["authenticated"]:
 # 🚀 CORE TERMINAL GRID DESIGN
 # ==========================================
 st.title("⚡ Nifty Liquid Confluence Screener Matrix")
-st.caption("Tx3 Analysis ke baad 4-Confirmations aur Fibonacci Levels ko ek hi dashboard par check karein")
+st.caption("Tx3 Analysis ke baad 5-Confirmations (with VWAP) aur Fibonacci Levels ek hi dashboard par")
 
 # Comprehensive High-Liquidity Nifty 200 Core Trading Pool
 NIFTY_200_POOL = {
@@ -53,7 +53,6 @@ NIFTY_200_POOL = {
     "ITC": {"yf": "ITC.NS", "gfin": "NSE:ITC", "dhan_id": "1660"},
     "LT": {"yf": "LT.NS", "gfin": "NSE:LT", "dhan_id": "11483"},
     "M&M": {"yf": "M&M.NS", "gfin": "NSE:M&M", "dhan_id": "2031"},
-    "RELIANCE": {"yf": "RELIANCE.NS", "gfin": "NSE:RELIANCE", "dhan_id": "2885"},
     "SUNPHARMA": {"yf": "SUNPHARMA.NS", "gfin": "NSE:SUNPHARMA", "dhan_id": "3351"},
     "TATAMOTORS": {"yf": "TATAMOTORS.NS", "gfin": "NSE:TATAMOTORS", "dhan_id": "3456"}
 }
@@ -61,7 +60,7 @@ NIFTY_200_POOL = {
 # ==========================================
 # 🔧 SIDEBAR DASHBOARD FILTERS
 # ==========================================
-st.sidebar.markdown("### 🎂️ LIQUID POOL WATCHLIST")
+st.sidebar.markdown("### 🗂️ LIQUID POOL WATCHLIST")
 st.sidebar.write("Tx3 Heatmap ke high momentum stocks yahan add karein:")
 
 selected_stocks = st.sidebar.multiselect(
@@ -137,24 +136,35 @@ def generate_matrix_row(stock_name, interval="5m"):
     df['EMA_20'] = ta.trend.ema_indicator(df['Close'], window=min(20, len(df)))
     df['RSI'] = ta.momentum.rsi(df['Close'], window=min(14, len(df)))
     df['Vol_Avg'] = df['Volume'].rolling(window=20, min_periods=1).mean()
+    
+    # Intraday Cumulative VWAP Calculation
+    df['Typical_Price'] = (df['High'] + df['Low'] + df['Close']) / 3
+    df['TP_Vol'] = df['Typical_Price'] * df['Volume']
+    df['Cum_TP_Vol'] = df['TP_Vol'].cumsum()
+    df['Cum_Vol'] = df['Volume'].cumsum()
+    df['VWAP'] = df['Cum_TP_Vol'] / df['Cum_Vol']
+    
     df = df.bfill().ffill()
-
     latest_bar = df.iloc[-1]
     
     # 1. EMA Rule Interpretation
     ema_20_val = round(latest_bar['EMA_20'], 2)
     ema_string = f"ABOVE 🟢 (₹{ema_20_val})" if live_p > latest_bar['EMA_20'] else f"BELOW 🔴 (₹{ema_20_val})"
     
-    # 2. RSI Formatting
+    # 2. VWAP Rule Interpretation
+    vwap_val = round(latest_bar['VWAP'], 2)
+    vwap_string = f"ABOVE 🟢 (₹{vwap_val})" if live_p > latest_bar['VWAP'] else f"BELOW 🔴 (₹{vwap_val})"
+    
+    # 3. RSI Formatting
     rsi_string = f"{round(latest_bar['RSI'], 1)}"
     
-    # 3. Volume Surge Processing
+    # 4. Volume Surge Processing
     raw_vol = float(latest_bar['Volume'])
     raw_avg_vol = float(latest_bar['Vol_Avg'])
     formatted_vol_str = format_volume(raw_vol)
     volume_string = f"🚀 SURGE ({formatted_vol_str})" if raw_vol > raw_avg_vol else f"Normal ({formatted_vol_str})"
 
-    # 4. Accurate Fibonacci Mapping Matrix
+    # 5. Accurate Fibonacci Mapping Matrix
     high_marker = float(df['High'].max())
     low_marker = float(df['Low'].min())
     spread_diff = high_marker - low_marker if (high_marker - low_marker) != 0 else 1
@@ -176,6 +186,7 @@ def generate_matrix_row(stock_name, interval="5m"):
         "Stock Name": stock_name,
         "Live LTP": f"₹{round(live_p, 2)}",
         "EMA 20 Trend": ema_string,
+        "VWAP Status": vwap_string,
         "RSI (14)": rsi_string,
         "Volume": volume_string,
         "Fibonacci Zone": fibonacci_string
@@ -203,10 +214,10 @@ if selected_stocks:
         
         # Operational Trade execution blueprints
         st.info(
-            "💡 **Intraday Quick Setup Execution:** \n"
+            "💡 **Intraday Ultra-Confluence Strategy:** \n"
             "1. Check **Tx3** for strong sector confirmation. \n"
-            "2. Identify matrix stocks showing **EMA 20 ABOVE 🟢**, **RSI > 50**, and **Volume SURGE 🚀**. \n"
-            "3. If that stock's Fibonacci Zone says **Near 50.0%** or **Near 61.8% Golden**, it's a high-probability trade zone."
+            "2. High Probability BUY tab tab banta hai jab **EMA 20 ABOVE 🟢** ho AUR **VWAP Status ALSO ABOVE 🟢** ho, sath me **RSI > 50** aur **Volume SURGE 🚀** dikhe.\n"
+            "3. Agar yeh charo match ho aur Fibonacci Zone **Near 50.0% / 61.8% Golden** dikhaye, toh jackpot setup confirm hota hai."
         )
     else:
         st.error("⚠️ Pipeline structural connection error. Synchronizing feeds...")
