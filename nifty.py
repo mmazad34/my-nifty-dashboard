@@ -11,12 +11,34 @@ import re
 from datetime import datetime
 from dhanhq import dhanhq
 
-# Page configuration
+# ==========================================
+# CONFIGURATION & PAGE SETUPS
+# ==========================================
 st.set_page_config(page_title="Intraday Signal Terminal", layout="wide")
+
+# ==========================================
+# 🔒 SECURITY SYSTEM (PASSWORD WALL)
+# ==========================================
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+
+if not st.session_state["authenticated"]:
+    st.title("🔒 Authorized Access Only")
+    user_input = st.text_input("Enter Admin Password:", type="password")
+    if st.button("Login"):
+        if user_input == st.secrets["MY_APP_PASSWORD"]:
+            st.session_state["authenticated"] = True
+            st.rerun()
+        else:
+            st.error("❌ Wrong Password! Access Denied.")
+    st.stop()
+
+# ==========================================
+# 🚀 CORE INTRADAY CORE TERMINAL
+# ==========================================
 st.title("⚡ Simple Intraday Live Signal Terminal")
 
 # Ticker Mapping (YFinance vs Google Finance vs Dhan Security ID)
-# Aap yahan apne manpasand stocks aaram se add kar sakte hain
 STOCKS = {
     "RELIANCE": {"yf": "RELIANCE.NS", "gfin": "NSE:RELIANCE", "dhan_id": "2885"},
     "TCS": {"yf": "TCS.NS", "gfin": "NSE:TCS", "dhan_id": "11536"},
@@ -58,7 +80,6 @@ def fetch_stock_data(stock_name, interval="5m"):
     """Fetches historical structure and injects live price"""
     yf_ticker = STOCKS[stock_name]["yf"]
     
-    # Fetch last 5 days data for Intraday structure
     try:
         df = yf.download(yf_ticker, period="5d", interval=interval, progress=False)
         if isinstance(df.columns, pd.MultiIndex):
@@ -101,10 +122,10 @@ def process_signals(df):
         ema200 = df['EMA_200'].iloc[i]
         rsi = df['RSI'].iloc[i]
         
-        # BUY Rule: Price EMA 20 ke upar ho, EMA 20 khud EMA 200 ke upar ho, aur RSI > 50 (Bullish Momentum)
+        # BUY Rule: Price EMA 20 ke upar ho, EMA 20 khud EMA 200 ke upar ho, aur RSI > 50
         if close > ema20 and ema20 > ema200 and rsi > 50:
             signals.append("BUY 🟢")
-        # SELL Rule: Price EMA 20 ke neeche ho, EMA 20 khud EMA 200 ke neeche ho, aur RSI < 45 (Bearish Momentum)
+        # SELL Rule: Price EMA 20 ke neeche ho, EMA 20 khud EMA 200 ke neeche ho, aur RSI < 45
         elif close < ema20 and ema20 < ema200 and rsi < 45:
             signals.append("SELL 🔴")
         else:
@@ -114,13 +135,13 @@ def process_signals(df):
     return df
 
 # ==========================================
-# 🖥️ USER INTERFACE
+# 🖥️ USER INTERFACE CONTROLLER
 # ==========================================
-# Sidebar Selection
+# Sidebar Settings
 selected_stock = st.sidebar.selectbox("🎯 Select Stock for Intraday", list(STOCKS.keys()))
 timeframe = st.sidebar.selectbox("⏱️ Timeframe", ["5m", "15m", "1h"])
 
-# Fetch and Process
+# Process Execution
 data = fetch_stock_data(selected_stock, interval=timeframe)
 
 if not data.empty:
@@ -128,12 +149,12 @@ if not data.empty:
     latest_data = final_df.iloc[-1]
     prev_data = final_df.iloc[-2]
     
-    # Metrics Calculation
+    # Metrics
     ltp = round(latest_data['Close'], 2)
     change = round(ltp - prev_data['Close'], 2)
     pct_change = round((change / prev_data['Close']) * 100, 2)
     
-    # Display Top Cards
+    # Dashboard Grid Layout
     c1, c2, c3, c4 = st.columns(4)
     with c1:
         st.metric(label=f"{selected_stock} LTP", value=f"₹{ltp}", delta=f"{change} ({pct_change}%)")
@@ -142,7 +163,6 @@ if not data.empty:
     with c3:
         st.metric(label="EMA 20", value=f"₹{round(latest_data['EMA_20'], 2)}")
     with c4:
-        # Dynamic Color Block for Signal
         sig = latest_data['Signal']
         bg_color = "#238636" if "🟢" in sig else ("#da3633" if "🔴" in sig else "#21262d")
         st.markdown(f"""
@@ -153,7 +173,7 @@ if not data.empty:
         
     st.divider()
     
-    # Display Recent Data Table for confirmation
+    # Log Table
     st.subheader("📋 Recent 5-Candles Terminal Log")
     log_df = final_df[['Open', 'High', 'Low', 'Close', 'RSI', 'Signal']].tail(5)
     st.dataframe(log_df, use_container_width=True)
@@ -161,5 +181,9 @@ if not data.empty:
 else:
     st.error("⚠️ Data connection lost. Waiting for next interval tick...")
 
-# Auto reload every 10 seconds for real-time tracking
-st.markdown("<script>setTimeout(function(){ window.location.reload(); }, 10000);</script>", unsafe_allow_html=True)
+# JavaScript for crisp 10 seconds auto-refresh loop
+st.markdown("""
+    <script>
+        setTimeout(function(){ window.location.reload(); }, 10000);
+    </script>
+""", unsafe_allow_html=True)
