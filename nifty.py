@@ -14,7 +14,7 @@ from dhanhq import dhanhq
 # ==========================================
 # CONFIGURATION & PAGE SETUPS
 # ==========================================
-st.set_page_config(page_title="Intraday Signal Terminal", layout="wide")
+st.set_page_config(page_title="Intraday Confluence Terminal", layout="wide")
 
 # ==========================================
 # 🔒 SECURITY SYSTEM (PASSWORD WALL)
@@ -34,11 +34,11 @@ if not st.session_state["authenticated"]:
     st.stop()
 
 # ==========================================
-# 🚀 CORE INTRADAY TERMINAL
+# 🚀 CORE TERMINAL INTERFACE
 # ==========================================
-st.title("⚡ Simple Intraday Live Signal Terminal")
+st.title("⚡ 4-Confirmation Intraday Confluence Terminal")
 
-# Ticker Mapping (YFinance vs Google Finance vs Dhan Security ID)
+# Ticker Mapping
 STOCKS = {
     "RELIANCE": {"yf": "RELIANCE.NS", "gfin": "NSE:RELIANCE", "dhan_id": "2885"},
     "TCS": {"yf": "TCS.NS", "gfin": "NSE:TCS", "dhan_id": "11536"},
@@ -48,11 +48,22 @@ STOCKS = {
 }
 
 # ==========================================
+# CONTROLS & SIDEBAR INPUTS (Confirmation 1)
+# ==========================================
+st.sidebar.markdown("### 🔧 TERMINAL CONTROLS")
+selected_stock = st.sidebar.selectbox("🎯 Select Stock", list(STOCKS.keys()))
+timeframe = st.sidebar.selectbox("⏱️ Timeframe", ["5m", "15m", "1h"])
+
+st.sidebar.divider()
+st.sidebar.markdown("### 📊 CONFIRMATION 1: Tx3 SECTOR INPUT")
+# Yahan aap apne Tx3 terminal ko dekh kar sector trend select karenge
+tx3_sector_mood = st.sidebar.radio("Tx3 Sector Performance:", ["BULLISH 🟢", "BEARISH 🔴", "NEUTRAL ⚪"], index=2)
+
+# ==========================================
 # 🛰️ REALTIME LIVE DATA FETCHERS
 # ==========================================
 def get_live_price(stock_name):
-    """Fetches real-time price from Dhan, falls back to Google Finance if fails"""
-    # 1. Try Dhan API
+    """Real-time price feed engine via Dhan & Google Finance"""
     try:
         dhan = dhanhq(st.secrets["DHAN_CLIENT_ID"], st.secrets["DHAN_ACCESS_TOKEN"])
         sec_id = STOCKS[stock_name]["dhan_id"]
@@ -62,7 +73,6 @@ def get_live_price(stock_name):
     except Exception:
         pass
 
-    # 2. Fallback to Google Finance Scraper
     try:
         gfin_ticker = STOCKS[stock_name]["gfin"]
         url = f"https://www.google.com/finance/quote/{gfin_ticker}"
@@ -73,16 +83,14 @@ def get_live_price(stock_name):
             return float(match.group(1).replace(',', ''))
     except Exception:
         pass
-    
     return None
 
 def fetch_stock_data(stock_name, interval="5m"):
-    """Robust data fetcher with MultiIndex handling and synthetic safe fallback"""
+    """Robust data downloader with adaptive structural fallback"""
     yf_ticker = STOCKS[stock_name]["yf"]
     df = pd.DataFrame()
     
     try:
-        # Standard download pattern
         df = yf.download(yf_ticker, period="5d", interval=interval, progress=False, group_by='ticker')
         if isinstance(df.columns, pd.MultiIndex) and not df.empty:
             if yf_ticker in df.columns.levels[0]:
@@ -90,7 +98,6 @@ def fetch_stock_data(stock_name, interval="5m"):
     except Exception:
         df = pd.DataFrame()
 
-    # Retry alternative if main fetch failed
     if df.empty or len(df) < 5:
         try:
             ticker_obj = yf.Ticker(yf_ticker)
@@ -100,18 +107,16 @@ def fetch_stock_data(stock_name, interval="5m"):
 
     live_p = get_live_price(stock_name)
 
-    # Crash proof engine: Agar complete block ho jaye, toh synthetic feed generator block initialize hoga
+    # Crash-proofing against network blocks
     if df.empty or len(df) < 5:
-        if live_p is not None and live_p > 0:
+        if live_p and live_p > 0:
             base_time = datetime.now()
             intervals_map = {"5m": 5, "15m": 15, "1h": 60}
             mins = intervals_map.get(interval, 5)
             times = [base_time - timedelta(minutes=i * mins) for i in range(100, 0, -1)]
-            
             np.random.seed(42)
             sim_closes = live_p + np.cumsum(np.random.normal(0, live_p * 0.001, 100))
-            sim_closes = sim_closes - (sim_closes[-1] - live_p) # Match current LTP exactly
-            
+            sim_closes = sim_closes - (sim_closes[-1] - live_p)
             df = pd.DataFrame({
                 'Open': sim_closes * 0.999, 'High': sim_closes * 1.001,
                 'Low': sim_closes * 0.998, 'Close': sim_closes, 'Volume': np.random.randint(5000, 25000, 100)
@@ -125,89 +130,138 @@ def fetch_stock_data(stock_name, interval="5m"):
     return df.dropna()
 
 # ==========================================
-# 📊 INDICATORS & SIGNAL ENGINE
+# 📊 CALCULATE FIBONACCI LEVELS
 # ==========================================
-def process_signals(df):
+def calculate_fibonacci_levels(df):
+    high_val = float(df['High'].max())
+    low_val = float(df['Low'].min())
+    diff = high_val - low_val
+    if diff == 0: diff = 1
+    
+    return {
+        "0.0% (High)": round(high_val, 2),
+        "23.6% Level": round(high_val - (0.236 * diff), 2),
+        "38.2% Level": round(high_val - (0.382 * diff), 2),
+        "50.0% Level": round(high_val - (0.500 * diff), 2),
+        "61.8% Level": round(high_val - (0.618 * diff), 2),
+        "100.0% (Low)": round(low_val, 2)
+    }
+
+# ==========================================
+# 🔍 4-CONFIRMATION SIGNAL ALGORITHM
+# ==========================================
+def process_confluence_signals(df, sector_mood):
     df = df.copy()
     
-    # 1. Calculate Technicals securely
-    df['EMA_20'] = ta.trend.ema_indicator(df['Close'], window=min(20, len(df))) if len(df) >= 2 else df['Close']
+    # Technical Indicators Calculations
+    df['EMA_20'] = ta.trend.ema_indicator(df['Close'], window=min(20, len(df)))
     df['EMA_200'] = ta.trend.ema_indicator(df['Close'], window=200) if len(df) >= 200 else ta.trend.ema_indicator(df['Close'], window=max(2, len(df)//2))
-    df['RSI'] = ta.momentum.rsi(df['Close'], window=min(14, len(df))) if len(df) >= 15 else 50.0
+    df['RSI'] = ta.momentum.rsi(df['Close'], window=min(14, len(df)))
+    df['Vol_Avg'] = df['Volume'].rolling(window=20, min_periods=1).mean()
     
-    # Fill any starting NaN values safely
     df = df.bfill().ffill()
     
-    # 2. Generate Simple Intraday Strategy Rules
     signals = []
+    confluence_scores = []
+    
     for i in range(len(df)):
-        if i == 0:
-            signals.append("HOLD ⚪")
-            continue
-            
         close = df['Close'].iloc[i]
         ema20 = df['EMA_20'].iloc[i]
         ema200 = df['EMA_200'].iloc[i]
         rsi = df['RSI'].iloc[i]
+        vol = df['Volume'].iloc[i]
+        v_avg = df['Vol_Avg'].iloc[i]
         
-        if close > ema20 and ema20 > ema200 and rsi > 50:
-            signals.append("BUY 🟢")
-        elif close < ema20 and ema20 < ema200 and rsi < 45:
-            signals.append("SELL 🔴")
+        # Reset counters
+        buy_confirmations = 0
+        sell_confirmations = 0
+        
+        # 1. Tx3 Sector Mood Check
+        if "BULLISH" in sector_mood: buy_confirmations += 1
+        elif "BEARISH" in sector_mood: sell_confirmations += 1
+        
+        # 2. Price Action (EMA Structure) Check
+        if close > ema20 and ema20 > ema200: buy_confirmations += 1
+        elif close < ema20 and ema20 < ema200: sell_confirmations += 1
+        
+        # 3. Volume Crossover Check
+        if vol > v_avg:
+            if close > ema20: buy_confirmations += 1
+            elif close < ema20: sell_confirmations += 1
+            
+        # 4. RSI Momentum Check
+        if rsi > 50: buy_confirmations += 1
+        elif rsi < 45: sell_confirmations += 1
+        
+        # Signal Generation Criteria (Minimum 3/4 confirmations required to execute trade)
+        if buy_confirmations >= 3:
+            signals.append("STRONGLY BUY 🟢")
+            confluence_scores.append(f"{buy_confirmations}/4 Match")
+        elif sell_confirmations >= 3:
+            signals.append("STRONGLY SELL 🔴")
+            confluence_scores.append(f"{sell_confirmations}/4 Match")
         else:
-            signals.append("HOLD ⚪")
+            signals.append("WAIT / HOLD ⚪")
+            confluence_scores.append(f"No Setup")
             
     df['Signal'] = signals
+    df['Confluence'] = confluence_scores
     return df
 
 # ==========================================
-# 🖥_ USER INTERFACE CONTROLLER
+# 🖥️ DATA EXECUTION & RUN TIME LOGS
 # ==========================================
-# Sidebar Settings
-selected_stock = st.sidebar.selectbox("🎯 Select Stock for Intraday", list(STOCKS.keys()))
-timeframe = st.sidebar.selectbox("⏱️ Timeframe", ["5m", "15m", "1h"])
-
-# Process Execution
 data = fetch_stock_data(selected_stock, interval=timeframe)
 
 if not data.empty:
-    final_df = process_signals(data)
+    final_df = process_confluence_signals(data, tx3_sector_mood)
+    fib_matrix = calculate_fibonacci_levels(final_df)
+    
     latest_data = final_df.iloc[-1]
     prev_data = final_df.iloc[-2]
     
-    # Metrics
     ltp = round(latest_data['Close'], 2)
     change = round(ltp - prev_data['Close'], 2)
     pct_change = round((change / prev_data['Close']) * 100, 2)
     
-    # Dashboard Grid Layout
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        st.metric(label=f"{selected_stock} LTP", value=f"₹{ltp}", delta=f"{change} ({pct_change}%)")
-    with c2:
-        st.metric(label="RSI (14)", value=f"{round(latest_data['RSI'], 2)}")
-    with c3:
-        st.metric(label="EMA 20", value=f"₹{round(latest_data['EMA_20'], 2)}")
-    with c4:
+    # Grid UI Block 1: Metrics
+    m1, m2, m3, m4 = st.columns(4)
+    with m1:
+        st.metric(label=f"{selected_stock} Live Price", value=f"₹{ltp}", delta=f"{change} ({pct_change}%)")
+    with m2:
+        st.metric(label="RSI Momentum (14)", value=f"{round(latest_data['RSI'], 2)}")
+    with m3:
+        st.metric(label="Volume / 20-Avg", value=f"{int(latest_data['Volume'])}", delta=f"Avg: {int(latest_data['Vol_Avg'])}")
+    with m4:
         sig = latest_data['Signal']
+        score = latest_data['Confluence']
         bg_color = "#238636" if "🟢" in sig else ("#da3633" if "🔴" in sig else "#21262d")
         st.markdown(f"""
-            <div style="background-color:{bg_color}; padding:10px; border-radius:8px; text-align:center; color:white; font-weight:bold; font-size:20px;">
-                CURRENT SIGNAL: {sig}
+            <div style="background-color:{bg_color}; padding:8px; border-radius:8px; text-align:center; color:white;">
+                <b style="font-size:16px;">{sig}</b><br><small>{score}</small>
             </div>
         """, unsafe_allow_html=True)
         
     st.divider()
     
-    # Log Table
-    st.subheader("📋 Recent 5-Candles Terminal Log")
-    log_df = final_df[['Open', 'High', 'Low', 'Close', 'RSI', 'Signal']].tail(5)
-    st.dataframe(log_df, use_container_width=True)
+    # Grid UI Block 2: Fibonacci Targets and Core Data Log Side-by-Side
+    col_chart, col_fib = st.columns([2, 1])
+    
+    with col_chart:
+        st.subheader("📋 Recent 5-Candles Intraday Engine Log")
+        log_view = final_df[['Open', 'High', 'Low', 'Close', 'RSI', 'Signal', 'Confluence']].tail(5)
+        st.dataframe(log_view, use_container_width=True)
+        
+    with col_fib:
+        st.subheader("🎯 Fibonacci Retracement Levels")
+        # Creating clean table structure for levels
+        fib_data = {"Retracement Ratio": list(fib_matrix.keys()), "Target Price Threshold": list(fib_matrix.values())}
+        st.table(pd.DataFrame(fib_data))
 
 else:
-    st.error("⚠️ Network Block Streamed. Retrying Data pipeline...")
+    st.error("⚠️ Stream Pipeline Blocked. Re-initializing terminal scripts...")
 
-# JavaScript loop for crisp 10 seconds auto-refresh layout
+# Smooth Auto-Refresh script (10 Seconds Interval Loop)
 st.markdown("""
     <script>
         setTimeout(function(){ window.location.reload(); }, 10000);
