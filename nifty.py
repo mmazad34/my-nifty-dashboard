@@ -181,4 +181,4 @@ def get_dhan_live_pcr(selected_tab):
             underlying_type=asset_info["type"]
         )
         
-        if option_data and option_data.get('
+        if option_data and option_data.get)
