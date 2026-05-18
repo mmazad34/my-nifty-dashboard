@@ -179,6 +179,4 @@ def get_dhan_live_pcr(selected_tab):
         option_data = dhan.get_option_chain(
             underlying_key=asset_info["key"], 
             underlying_type=asset_info["type"]
-        )
-        
-        if option_data and option_data.get)
+     
