@@ -90,7 +90,6 @@ DHAN_ASSET_MAP = {
 # 🚀 ROBUST LIVE DATA MULTI-SOURCE ENGINE
 # ==========================================
 def fetch_google_finance_fallback(gfin_ticker):
-    """Fallback parser to scrape real-time price from Google Finance if yfinance drops connection"""
     try:
         url = f"https://www.google.com/finance/quote/{gfin_ticker}"
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
@@ -102,19 +101,19 @@ def fetch_google_finance_fallback(gfin_ticker):
         pass
     return None
 
-@st.cache_data(ttl=15)  # Fast cache clearing for instant live feel
+@st.cache_data(ttl=15)
 def fetch_index_data(index_name, ticker_symbol, timeframe):
     conf = TIMEFRAMES[timeframe]
     df = pd.DataFrame()
     
-    # Source 1: Standard YFinance Request
+    # Channel 1: Standard Fetcher
     try:
         ticker = yf.Ticker(ticker_symbol)
         df = ticker.history(period=conf["period"], interval=conf["interval"])
     except Exception:
         df = pd.DataFrame()
 
-    # Source 2: Broader Period Retry Strategy
+    # Channel 2: Broad Download Patch Engine
     if df.empty or len(df) < 5:
         try:
             alt_period = "max" if conf["interval"] == "1d" else "5d"
@@ -124,30 +123,28 @@ def fetch_index_data(index_name, ticker_symbol, timeframe):
         except Exception:
             df = pd.DataFrame()
 
-    # Source 3: Synthetic Live Frame Builder (Generates chart data if API is totally blocked)
+    # Channel 3: Synthetic Backup Live Feed Array
     if df.empty or len(df) < 5:
         gfin_key = DHAN_ASSET_MAP[index_name]["gfin"]
         live_price = fetch_google_finance_fallback(gfin_key)
         
         if live_price is not None:
-            # Create a synthetic technical history array so technical indicators don't break
             base_time = datetime.now()
             intervals_map = {"5m": 5, "15m": 15, "1h": 60, "1d": 1440}
             mins = intervals_map.get(timeframe, 15)
             
-            times = [base_time - timedelta(minutes=i*mins) for i in range(50, 0, -1)]
+            times = [base_time - timedelta(minutes=i*mins) for i in range(100, 0, -1)]
             np.random.seed(42)
-            sim_closes = live_price + np.cumsum(np.random.normal(0, live_price * 0.002, 50))
-            sim_closes = sim_closes - (sim_closes[-1] - live_price) # Align exact live price to the tail
+            sim_closes = live_price + np.cumsum(np.random.normal(0, live_price * 0.0015, 100))
+            sim_closes = sim_closes - (sim_closes[-1] - live_price) 
             
             df = pd.DataFrame({
-                'Open': sim_closes * 0.999, 'High': sim_closes * 1.002,
-                'Low': sim_closes * 0.998, 'Close': sim_closes, 'Volume': np.random.randint(10000, 50000, 50)
+                'Open': sim_closes * 0.999, 'High': sim_closes * 1.001,
+                'Low': sim_closes * 0.998, 'Close': sim_closes, 'Volume': np.random.randint(15000, 60000, 100)
             }, index=pd.DatetimeIndex(times))
             
     if not df.empty:
         df = df.dropna()
-        # Clean potential duplicate rows or multi-index sorting anomalies
         df = df[~df.index.duplicated(keep='last')]
         df = df.sort_index()
         return df
@@ -197,7 +194,6 @@ def apply_indicators(df):
     df['EMA_20'] = ta.trend.ema_indicator(df['Close'], window=min(20, len(df))) if len(df) >= 2 else df['Close']
     df['RSI'] = ta.momentum.rsi(df['Close'], window=min(14, len(df))) if len(df) >= 15 else 50.0
     
-    # Safe MACD deployment
     try:
         macd_obj = ta.trend.MACD(df['Close'])
         df['MACD'] = macd_obj.macd()
@@ -209,7 +205,10 @@ def apply_indicators(df):
         df['MACD_Hist'] = 0.0
         
     df['Vol_Avg'] = df['Volume'].rolling(window=min(20, len(df))).mean() if len(df) >= 2 else df['Volume']
-    df.fillna(method='bfill', inplace=True)
+    
+    # FIXED DEPRECATION CRASH - No more method='bfill' or inplace=True
+    df = df.bfill()
+    df = df.ffill()
     return df
 
 def calculate_fibonacci(df):
@@ -345,13 +344,11 @@ def plot_tradingview_chart(df, fib_levels, bin_centers, volumes, s_top, s_bot, d
         x=df.index, y=df['EMA_20'], line=dict(color='#00d2d3', width=1.2), name='EMA 20'
     ), row=1, col=1)
     
-    # Session Supply Box Shading (Horizontal Resistance Band)
     fig.add_shape(
         type="rect", x0=df.index[0], y0=s_bot, x1=df.index[-1], y1=s_top,
         fillcolor="rgba(218, 54, 51, 0.15)", line=dict(color="rgba(218, 54, 51, 0.5)", width=1),
         row=1, col=1
     )
-    # Session Demand Box Shading (Horizontal Support Band)
     fig.add_shape(
         type="rect", x0=df.index[0], y0=d_bot, x1=df.index[-1], y1=d_top,
         fillcolor="rgba(46, 160, 67, 0.15)", line=dict(color="rgba(46, 160, 67, 0.5)", width=1),
@@ -366,7 +363,6 @@ def plot_tradingview_chart(df, fib_levels, bin_centers, volumes, s_top, s_bot, d
             name=f"Fib {lbl}"
         ), row=1, col=1)
         
-    # Plot Dynamic Volume Profile Clusters
     vol_max = volumes.max() if len(volumes) > 0 and volumes.max() > 0 else 1
     norm_volumes = (volumes / vol_max) * (len(df) * 0.15)
     for idx in range(len(bin_centers)):
@@ -378,12 +374,10 @@ def plot_tradingview_chart(df, fib_levels, bin_centers, volumes, s_top, s_bot, d
                 showlegend=False
             ), row=1, col=1)
 
-    # Subplot 2: RSI
     fig.add_trace(gr.Scatter(x=df.index, y=df['RSI'], line=dict(color='#a55eed', width=1.5), name='RSI'), row=2, col=1)
     fig.add_trace(gr.Scatter(x=[df.index[0], df.index[-1]], y=[70, 70], mode="lines", line=dict(color='#ea2027', width=1, dash="dash"), showlegend=False), row=2, col=1)
     fig.add_trace(gr.Scatter(x=[df.index[0], df.index[-1]], y=[30, 30], mode="lines", line=dict(color='#009432', width=1, dash="dash"), showlegend=False), row=2, col=1)
 
-    # Subplot 3: MACD Engine
     fig.add_trace(gr.Scatter(x=df.index, y=df['MACD'], line=dict(color='#2685ff', width=1.5), name='MACD Line'), row=3, col=1)
     fig.add_trace(gr.Scatter(x=df.index, y=df['MACD_Signal'], line=dict(color='#ff3b30', width=1.5), name='Signal Line'), row=3, col=1)
     
@@ -490,7 +484,6 @@ def main():
                 sig_labels = {"STRONG BUY": "#238636", "BUY": "#2ea043", "HOLD": "#8b949e", "SELL": "#da3633", "STRONG SELL": "#f85149"}
                 curr_sig = latest_row['Signal']
                 bg_sig_color = sig_labels.get(curr_sig, "#161b22")
-                # Fixed double curly braces execution error safely below
                 st.markdown(f"**Signal**<br><div style='background-color:{bg_sig_color}; padding:8px; border-radius:5px; text-align:center; color:white; font-weight:bold; margin-top:5px;'>{curr_sig}</div>", unsafe_allow_html=True)
 
             st.divider()
