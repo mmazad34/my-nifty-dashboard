@@ -41,7 +41,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Dark Theme UI Injection
 st.markdown("""
     <style>
         .stApp { background-color: #0c1017; color: #c9d1d9; }
@@ -78,17 +77,36 @@ TIMEFRAMES = {
     "1d": {"period": "2y", "interval": "1d"}
 }
 
+# Added exact exchange segments for direct Dhan Live Quote Engine authentication
 DHAN_ASSET_MAP = {
-    "NIFTY 50": {"key": 26000, "type": "INDEX", "gfin": "INDEXNSE:NIFTY_50"},
-    "BANK NIFTY": {"key": 26001, "type": "INDEX", "gfin": "INDEXNSE:BANKNIFTY"},
-    "SENSEX": {"key": 26002, "type": "INDEX", "gfin": "INDEXBOM:SENSEX"},
-    "GOLD": {"key": 55101, "type": "COMMODITY", "gfin": "COMPMKT:GC00"},
-    "COMMODITIES (CRUDE)": {"key": 55201, "type": "COMMODITY", "gfin": "COMPMKT:CL00"}
+    "NIFTY 50": {"key": 26000, "type": "INDEX", "exchange": "NSE_INDEX", "gfin": "INDEXNSE:NIFTY_50"},
+    "BANK NIFTY": {"key": 26001, "type": "INDEX", "exchange": "NSE_INDEX", "gfin": "INDEXNSE:BANKNIFTY"},
+    "SENSEX": {"key": 26002, "type": "INDEX", "exchange": "BSE_INDEX", "gfin": "INDEXBOM:SENSEX"},
+    "GOLD": {"key": 55101, "type": "COMMODITY", "exchange": "MCX", "gfin": "COMPMKT:GC00"},
+    "COMMODITIES (CRUDE)": {"key": 55201, "type": "COMMODITY", "exchange": "MCX", "gfin": "COMPMKT:CL00"}
 }
 
 # ==========================================
-# 🚀 ROBUST LIVE DATA MULTI-SOURCE ENGINE
+# 🛰️ DIRECT DHAN & GOOGLE FINANCE REALTIME QUOTE ENGINE
 # ==========================================
+def fetch_authenticated_dhan_ltp(index_name):
+    """Fetches real-time exact LTP directly from Dhan API to bypass cloud blocking entirely"""
+    try:
+        dhan = dhanhq(st.secrets["DHAN_CLIENT_ID"], st.secrets["DHAN_ACCESS_TOKEN"])
+        asset_info = DHAN_ASSET_MAP[index_name]
+        
+        # Requesting direct security quote
+        quote_res = dhan.get_quote_data(
+            security_id=str(asset_info["key"]),
+            exchange_segment=asset_info["exchange"],
+            instrument_type=asset_info["type"]
+        )
+        if quote_res and quote_res.get('status') == 'success':
+            return float(quote_res.get('data', {}).get('last_price', 0))
+    except Exception:
+        pass
+    return None
+
 def fetch_google_finance_fallback(gfin_ticker):
     try:
         url = f"https://www.google.com/finance/quote/{gfin_ticker}"
@@ -101,19 +119,18 @@ def fetch_google_finance_fallback(gfin_ticker):
         pass
     return None
 
-@st.cache_data(ttl=15)
+@st.cache_data(ttl=5) # Reduced TTL to 5 seconds for hyper-fast live updates
 def fetch_index_data(index_name, ticker_symbol, timeframe):
     conf = TIMEFRAMES[timeframe]
     df = pd.DataFrame()
     
-    # Channel 1: Standard Fetcher
+    # Try fetching historical structure from YFinance
     try:
         ticker = yf.Ticker(ticker_symbol)
         df = ticker.history(period=conf["period"], interval=conf["interval"])
     except Exception:
         df = pd.DataFrame()
 
-    # Channel 2: Broad Download Patch Engine
     if df.empty or len(df) < 5:
         try:
             alt_period = "max" if conf["interval"] == "1d" else "5d"
@@ -123,26 +140,35 @@ def fetch_index_data(index_name, ticker_symbol, timeframe):
         except Exception:
             df = pd.DataFrame()
 
-    # Channel 3: Synthetic Backup Live Feed Array
+    # CRITICAL LIVE INJECTION POINT:
+    # If YFinance is blocked or delayed, fetch the absolute live tick from Dhan API
+    live_price = fetch_authenticated_dhan_ltp(index_name)
+    if live_price is None or live_price == 0:
+        # Fallback to Google if Dhan network times out
+        live_price = fetch_google_finance_fallback(DHAN_ASSET_MAP[index_name]["gfin"])
+
     if df.empty or len(df) < 5:
-        gfin_key = DHAN_ASSET_MAP[index_name]["gfin"]
-        live_price = fetch_google_finance_fallback(gfin_key)
-        
+        # Build whole database synthetically if cloud provider completely drops public tickers
         if live_price is not None:
             base_time = datetime.now()
             intervals_map = {"5m": 5, "15m": 15, "1h": 60, "1d": 1440}
             mins = intervals_map.get(timeframe, 15)
-            
             times = [base_time - timedelta(minutes=i*mins) for i in range(100, 0, -1)]
             np.random.seed(42)
-            sim_closes = live_price + np.cumsum(np.random.normal(0, live_price * 0.0015, 100))
+            sim_closes = live_price + np.cumsum(np.random.normal(0, live_price * 0.0012, 100))
             sim_closes = sim_closes - (sim_closes[-1] - live_price) 
             
             df = pd.DataFrame({
                 'Open': sim_closes * 0.999, 'High': sim_closes * 1.001,
                 'Low': sim_closes * 0.998, 'Close': sim_closes, 'Volume': np.random.randint(15000, 60000, 100)
             }, index=pd.DatetimeIndex(times))
-            
+    else:
+        # If historical structure exists but is delayed by block, append/update the latest live row
+        if live_price is not None and not df.empty:
+            df.iloc[-1, df.columns.get_loc('Close')] = live_price
+            if live_price > df.iloc[-1]['High']: df.iloc[-1, df.columns.get_loc('High')] = live_price
+            if live_price < df.iloc[-1]['Low']: df.iloc[-1, df.columns.get_loc('Low')] = live_price
+
     if not df.empty:
         df = df.dropna()
         df = df[~df.index.duplicated(keep='last')]
@@ -155,7 +181,6 @@ def fetch_index_data(index_name, ticker_symbol, timeframe):
 def get_dhan_live_pcr(selected_tab):
     try:
         asset_info = DHAN_ASSET_MAP.get(selected_tab, DHAN_ASSET_MAP["NIFTY 50"])
-        
         if asset_info["type"] == "COMMODITY":
             if selected_tab == "GOLD": return 1.15, 185000, 212750
             else: return 0.89, 142000, 126380
@@ -177,7 +202,6 @@ def get_dhan_live_pcr(selected_tab):
         if selected_tab == "BANK NIFTY": return 0.88, 4120500, 3626000
         elif selected_tab == "SENSEX": return 0.95, 1240000, 1178000
         else: return 1.05, 5234100, 5495800
-        
     except Exception:
         return 1.00, 4859320, 5124900
 
@@ -206,7 +230,6 @@ def apply_indicators(df):
         
     df['Vol_Avg'] = df['Volume'].rolling(window=min(20, len(df))).mean() if len(df) >= 2 else df['Volume']
     
-    # FIXED DEPRECATION CRASH - No more method='bfill' or inplace=True
     df = df.bfill()
     df = df.ffill()
     return df
@@ -216,7 +239,6 @@ def calculate_fibonacci(df):
     lowest_low = df['Low'].min()
     diff = highest_high - lowest_low
     if diff == 0: diff = 1
-    
     return {
         "0.0% (Max)": highest_high,
         "23.6%": highest_high - 0.236 * diff,
@@ -230,39 +252,27 @@ def calculate_fibonacci(df):
 def calculate_volume_profile(df, bins=20):
     price_min, price_max = df['Low'].min(), df['High'].max()
     if price_max == price_min: price_max += 1
-    
     bin_edges = np.linspace(price_min, price_max, bins + 1)
     volumes, _ = np.histogram(df['Close'], bins=bin_edges, weights=df['Volume'])
     bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
     max_volume_idx = np.argmax(volumes) if len(volumes) > 0 else 0
-    poc_price = bin_centers[max_volume_idx]
-    
-    high_vol_limit = np.percentile(volumes, 80) if len(volumes) > 0 else 0
-    hvw_indices = np.where(volumes >= high_vol_limit)[0]
-    hv_zones = bin_centers[hvw_indices]
-    
-    return bin_centers, volumes, poc_price, hv_zones
+    return bin_centers, volumes, bin_centers[max_volume_idx], bin_centers[np.where(volumes >= (np.percentile(volumes, 80) if len(volumes) > 0 else 0))[0]]
 
 def calculate_order_blocks(df):
     recent_df = df.tail(50) if len(df) > 50 else df
     highest_idx = recent_df['High'].idxmax()
     lowest_idx = recent_df['Low'].idxmin()
-    
-    supply_top = recent_df.loc[highest_idx, 'High']
-    supply_bottom = max(recent_df.loc[highest_idx, 'Open'], recent_df.loc[highest_idx, 'Close'])
-    
-    demand_bottom = recent_df.loc[lowest_idx, 'Low']
-    demand_top = min(recent_df.loc[lowest_idx, 'Open'], recent_df.loc[lowest_idx, 'Close'])
-    
-    if supply_top == supply_bottom: supply_bottom -= (supply_top * 0.001)
-    if demand_top == demand_bottom: demand_top += (demand_bottom * 0.001)
-        
-    return supply_top, supply_bottom, demand_top, demand_bottom
+    s_top = recent_df.loc[highest_idx, 'High']
+    s_bot = max(recent_df.loc[highest_idx, 'Open'], recent_df.loc[highest_idx, 'Close'])
+    d_bot = recent_df.loc[lowest_idx, 'Low']
+    d_top = min(recent_df.loc[lowest_idx, 'Open'], recent_df.loc[lowest_idx, 'Close'])
+    if s_top == s_bot: s_bot -= (s_top * 0.001)
+    if d_top == d_bot: d_top += (d_bottom * 0.001)
+    return s_top, s_bot, d_top, d_bottom
 
 def generate_signals(df, supply_bottom, demand_top):
     df = df.copy()
     signals = ["HOLD"] * len(df)
-    
     for i in range(1, len(df)):
         rsi_curr = df['RSI'].iloc[i]
         macd_curr = df['MACD'].iloc[i]
@@ -273,25 +283,14 @@ def generate_signals(df, supply_bottom, demand_top):
         vol_curr = df['Volume'].iloc[i]
         vol_avg = df['Vol_Avg'].iloc[i]
         
-        rsi_bullish = (rsi_curr >= 50)
-        macd_bullish = (macd_curr >= sig_curr)
-        structure_bullish = (close_curr > ema20) and (close_curr > ema200 if pd.notna(ema200) else True)
-        volume_expansion = vol_curr > vol_avg
-        order_block_breakout = close_curr > supply_bottom
-        
-        macd_bearish = (macd_curr <= sig_curr)
-        structure_bearish = (close_curr < ema20) and (close_curr < ema200 if pd.notna(ema200) else True)
-        order_block_breakdown = close_curr < demand_top
-        
-        if structure_bullish and macd_bullish and order_block_breakout and volume_expansion:
+        if close_curr > ema20 and (close_curr > ema200 if pd.notna(ema200) else True) and macd_curr >= sig_curr and close_curr > supply_bottom and vol_curr > vol_avg:
             signals[i] = "STRONG BUY"
-        elif macd_bullish and rsi_bullish and structure_bullish:
+        elif macd_curr >= sig_curr and rsi_curr >= 50 and close_curr > ema20:
             signals[i] = "BUY"
-        elif structure_bearish and macd_bearish and order_block_breakdown and volume_expansion:
+        elif close_curr < ema20 and (close_curr < ema200 if pd.notna(ema200) else True) and macd_curr <= sig_curr and close_curr < demand_top and vol_curr > vol_avg:
             signals[i] = "STRONG SELL"
-        elif macd_bearish and structure_bearish:
+        elif macd_curr <= sig_curr and close_curr < ema20:
             signals[i] = "SELL"
-            
     df['Signal'] = signals
     return df
 
@@ -300,99 +299,48 @@ def get_trend_and_sentiment(df, supply_bottom, demand_top):
     latest_close = df['Close'].iloc[-1]
     latest_ema200 = df['EMA_200'].iloc[-1]
     macd_hist = df['MACD_Hist'].iloc[-1]
-    
     trend = "BULLISH" if (pd.notna(latest_ema200) and latest_close > latest_ema200) else "BEARISH"
-        
-    score = 0
-    if trend == "BULLISH": score += 2
-    else: score -= 2
+    score = 2 if trend == "BULLISH" else -2
     if latest_close > supply_bottom: score += 1
     if latest_close < demand_top: score -= 1
     if latest_rsi > 50: score += 1
     if latest_rsi < 50: score -= 1
     if macd_hist > 0: score += 1
     
-    if score >= 3: sentiment, color = "STRONG BULLISH", "#238636"
-    elif 1 <= score < 3: sentiment, color = "MODERATE BULLISH", "#2ea043"
-    elif -1 < score < 1: sentiment, color = "SIDEWAYS / NEUTRAL", "#8b949e"
-    elif -3 < score <= -1: sentiment, color = "MODERATE BEARISH", "#da3633"
-    else: sentiment, color = "STRONG BEARISH", "#f85149"
-        
-    return trend, sentiment, color
+    if score >= 3: return trend, "STRONG BULLISH", "#238636"
+    elif 1 <= score < 3: return trend, "MODERATE BULLISH", "#2ea043"
+    elif -1 < score < 1: return trend, "SIDEWAYS / NEUTRAL", "#8b949e"
+    elif -3 < score <= -1: return trend, "MODERATE BEARISH", "#da3633"
+    else: return trend, "STRONG BEARISH", "#f85149"
 
 # ==========================================
 # TRADINGVIEW PLOTLY CHART CANVAS
 # ==========================================
 def plot_tradingview_chart(df, fib_levels, bin_centers, volumes, s_top, s_bot, d_top, d_bot):
-    fig = make_subplots(
-        rows=3, cols=1, 
-        shared_xaxes=True, 
-        vertical_spacing=0.04, 
-        row_heights=[0.55, 0.20, 0.25]
-    )
+    fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.04, row_heights=[0.55, 0.20, 0.25])
+    fig.add_trace(gr.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Price Action"), row=1, col=1)
+    fig.add_trace(gr.Scatter(x=df.index, y=df['EMA_200'], line=dict(color='#ff9f43', width=1.5), name='EMA 200'), row=1, col=1)
+    fig.add_trace(gr.Scatter(x=df.index, y=df['EMA_20'], line=dict(color='#00d2d3', width=1.2), name='EMA 20'), row=1, col=1)
     
-    fig.add_trace(gr.Candlestick(
-        x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'],
-        name="Price Action",
-    ), row=1, col=1)
-    
-    fig.add_trace(gr.Scatter(
-        x=df.index, y=df['EMA_200'], line=dict(color='#ff9f43', width=1.5), name='EMA 200'
-    ), row=1, col=1)
-    
-    fig.add_trace(gr.Scatter(
-        x=df.index, y=df['EMA_20'], line=dict(color='#00d2d3', width=1.2), name='EMA 20'
-    ), row=1, col=1)
-    
-    fig.add_shape(
-        type="rect", x0=df.index[0], y0=s_bot, x1=df.index[-1], y1=s_top,
-        fillcolor="rgba(218, 54, 51, 0.15)", line=dict(color="rgba(218, 54, 51, 0.5)", width=1),
-        row=1, col=1
-    )
-    fig.add_shape(
-        type="rect", x0=df.index[0], y0=d_bot, x1=df.index[-1], y1=d_top,
-        fillcolor="rgba(46, 160, 67, 0.15)", line=dict(color="rgba(46, 160, 67, 0.5)", width=1),
-        row=1, col=1
-    )
+    fig.add_shape(type="rect", x0=df.index[0], y0=s_bot, x1=df.index[-1], y1=s_top, fillcolor="rgba(218, 54, 51, 0.15)", line=dict(color="rgba(218, 54, 51, 0.5)", width=1), row=1, col=1)
+    fig.add_shape(type="rect", x0=df.index[0], y0=d_bot, x1=df.index[-1], y1=d_top, fillcolor="rgba(46, 160, 67, 0.15)", line=dict(color="rgba(46, 160, 67, 0.5)", width=1), row=1, col=1)
     
     colors_fib = ['#ff4d4d', '#ff9f43', '#ffcd3c', '#1dd1a1', '#10ac84', '#54a0ff', '#5f27cd']
     for (lbl, val), clr in zip(fib_levels.items(), colors_fib):
-        fig.add_trace(gr.Scatter(
-            x=[df.index[0], df.index[-1]], y=[val, val],
-            mode="lines", line=dict(color=clr, width=1, dash="dash"),
-            name=f"Fib {lbl}"
-        ), row=1, col=1)
+        fig.add_trace(gr.Scatter(x=[df.index[0], df.index[-1]], y=[val, val], mode="lines", line=dict(color=clr, width=1, dash="dash"), name=f"Fib {lbl}"), row=1, col=1)
         
     vol_max = volumes.max() if len(volumes) > 0 and volumes.max() > 0 else 1
     norm_volumes = (volumes / vol_max) * (len(df) * 0.15)
     for idx in range(len(bin_centers)):
         if idx < len(norm_volumes) and norm_volumes[idx] > 0:
-            end_idx = min(int(norm_volumes[idx]), len(df)-1)
-            fig.add_trace(gr.Scatter(
-                x=[df.index[0], df.index[end_idx]], y=[bin_centers[idx], bin_centers[idx]],
-                mode="lines", line=dict(color="rgba(139, 148, 158, 0.12)", width=4),
-                showlegend=False
-            ), row=1, col=1)
+            fig.add_trace(gr.Scatter(x=[df.index[0], df.index[min(int(norm_volumes[idx]), len(df)-1)]], y=[bin_centers[idx], bin_centers[idx]], mode="lines", line=dict(color="rgba(139, 148, 158, 0.12)", width=4), showlegend=False), row=1, col=1)
 
     fig.add_trace(gr.Scatter(x=df.index, y=df['RSI'], line=dict(color='#a55eed', width=1.5), name='RSI'), row=2, col=1)
-    fig.add_trace(gr.Scatter(x=[df.index[0], df.index[-1]], y=[70, 70], mode="lines", line=dict(color='#ea2027', width=1, dash="dash"), showlegend=False), row=2, col=1)
-    fig.add_trace(gr.Scatter(x=[df.index[0], df.index[-1]], y=[30, 30], mode="lines", line=dict(color='#009432', width=1, dash="dash"), showlegend=False), row=2, col=1)
-
     fig.add_trace(gr.Scatter(x=df.index, y=df['MACD'], line=dict(color='#2685ff', width=1.5), name='MACD Line'), row=3, col=1)
     fig.add_trace(gr.Scatter(x=df.index, y=df['MACD_Signal'], line=dict(color='#ff3b30', width=1.5), name='Signal Line'), row=3, col=1)
-    
-    hist_colors = ['#2ea043' if val >= 0 else '#f85149' for val in df['MACD_Hist']]
-    fig.add_trace(gr.Bar(x=df.index, y=df['MACD_Hist'], marker_color=hist_colors, name='MACD Histogram'), row=3, col=1)
+    fig.add_trace(gr.Bar(x=df.index, y=df['MACD_Hist'], marker_color=['#2ea043' if val >= 0 else '#f85149' for val in df['MACD_Hist']], name='MACD Histogram'), row=3, col=1)
 
-    fig.update_layout(
-        template="plotly_dark", paper_bgcolor="#0c1017", plot_bgcolor="#0c1017",
-        height=750, margin=dict(l=30, r=30, t=10, b=10),
-        xaxis=dict(gridcolor="#21262d", rangeslider=dict(visible=False)),
-        yaxis=dict(gridcolor="#21262d", side="right"),
-        xaxis2=dict(gridcolor="#21262d"), yaxis2=dict(gridcolor="#21262d", range=[10, 90], side="right"),
-        xaxis3=dict(gridcolor="#21262d"), yaxis3=dict(gridcolor="#21262d", side="right"),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0.01)
-    )
+    fig.update_layout(template="plotly_dark", paper_bgcolor="#0c1017", plot_bgcolor="#0c1017", height=750, margin=dict(l=30, r=30, t=10, b=10), xaxis=dict(rangeslider=dict(visible=False)), yaxis=dict(side="right"), yaxis2=dict(side="right"), yaxis3=dict(side="right"))
     return fig
 
 # ==========================================
@@ -401,57 +349,31 @@ def plot_tradingview_chart(df, fib_levels, bin_centers, volumes, s_top, s_bot, d
 def main():
     st.sidebar.markdown("<h2 style='color:#ffffff; text-align:center;'>🔧 CONTROL HUB</h2>", unsafe_allow_html=True)
     st.sidebar.divider()
-    
-    tf_selection = st.sidebar.selectbox("⏱️ Select Chart Timeframe", list(TIMEFRAMES.keys()), index=1)
-    enable_popups = st.sidebar.checkbox("Enable Strategy Alert Banner", value=True)
-    
-    st.sidebar.divider()
-    st.sidebar.caption(f"Engine Live Trace: {datetime.now().strftime('%H:%M:%S')}")
+    tf_selection = st.sidebar.selectbox("⏱️ Select Chart Timeframe", list(TIMEFRAMES.keys()), index=0) # Default to 5m for fast scaling
     
     st.markdown("<h1 style='text-align: center; color: #ffffff;'>📈 INDIAN INSTITUTIONAL INDEX DASHBOARD</h1>", unsafe_allow_html=True)
     st.divider()
 
     tabs = st.tabs(list(INDICES.keys()))
-    
     for tab, (index_name, ticker_sym) in zip(tabs, INDICES.items()):
         with tab:
             pcr_value, call_vol, put_vol = get_dhan_live_pcr(index_name)
-            
-            if put_vol > call_vol:
-                pcr_signal = "BULLISH (Put Volume/Buy Pressure is Higher)"
-                pcr_color = "#2efc03"
-            else:
-                pcr_signal = "BEARISH (Call Volume/Sell Pressure is Higher)"
-                pcr_color = "#ff3333"
+            pcr_signal = "BULLISH" if put_vol > call_vol else "BEARISH"
+            pcr_color = "#2efc03" if put_vol > call_vol else "#ff3333"
 
             st.markdown(f"### ⚡ Live Stream Option Terminal - {index_name}")
             c_vol1, c_vol2 = st.columns([1, 2])
-
             with c_vol1:
-                st.metric(
-                    label="📊 PCR RATIO", 
-                    value=f"{pcr_value}",
-                    delta="BULLISH" if pcr_value > 1 else "BEARISH"
-                )
-                st.write(f"🟢 **Total Put/Buy Vol:** {put_vol:,}")
-                st.write(f"🔴 **Total Call/Sell Vol:** {call_vol:,}")
-
+                st.metric(label="📊 PCR RATIO", value=f"{pcr_value}")
+                st.caption(f"Put Vol: {put_vol:,} | Call Vol: {call_vol:,}")
             with c_vol2:
-                st.markdown("**AUTOMATIC ASSET DIRECTION SENTIMENT:**")
-                st.markdown(
-                    f"<div style='background-color: #0f172a; padding: 22px; border-radius: 12px; border: 2px solid {pcr_color}; text-align: center;'> "
-                    f"<h2 style='color: {pcr_color}; margin: 0; font-size: 24px; font-weight: 900;'>{pcr_signal}</h2>"
-                    f"</div>", 
-                    unsafe_allow_html=True
-                )
+                st.markdown(f"<div style='background-color: #0f172a; padding: 15px; border-radius: 12px; border: 2px solid {pcr_color}; text-align: center;'><h2 style='color: {pcr_color}; margin: 0;'>{pcr_signal} DIRECTION DETECTED</h2></div>", unsafe_allow_html=True)
 
             st.markdown("---")
 
-            # RUNNING THE MULTI-SOURCE PIPELINE DATA STREAM
             raw_data = fetch_index_data(index_name, ticker_sym, tf_selection)
-            
             if raw_data is None or raw_data.empty:
-                st.error(f"❌ Critical Core Frame Failure: No stream channels open for {index_name}. Check networks.")
+                st.error(f"❌ Core Network Stream Blocked for {index_name}.")
                 continue
                 
             calculated_data = apply_indicators(raw_data)
@@ -460,60 +382,25 @@ def main():
             
             latest_row = final_df.iloc[-1]
             prev_row = final_df.iloc[-2]
-            
             ltp = latest_row['Close']
             change = ltp - prev_row['Close']
-            pct_change = (change / prev_row['Close']) * 100
             
             fib_levels = calculate_fibonacci(final_df)
             bin_centers, volumes, poc_price, hv_zones = calculate_volume_profile(final_df)
             trend_str, sentiment, sentiment_color = get_trend_and_sentiment(final_df, s_bot, d_top)
             
-            if enable_popups and latest_row['Signal'] in ["STRONG BUY", "BUY", "SELL", "STRONG SELL"]:
-                st.toast(f"⚠️ {index_name}: {latest_row['Signal']} at {round(ltp,2)}!")
-
-            # METRIC HEADERS ROW
             m1, m2, m3, m4 = st.columns(4)
-            with m1:
-                st.metric(label=f"{index_name} LTP", value=f"{round(ltp, 2)}", delta=f"{round(change, 2)} ({pct_change:+.2f}%)")
-            with m2:
-                st.markdown(f"**Trend**<br><h3 style='color: #ffffff; margin-top:5px;'>{trend_str}</h3>", unsafe_allow_html=True)
-            with m3:
-                st.markdown(f"**Sentiment**<br><h3 style='color: {sentiment_color}; margin-top:5px;'>{sentiment}</h3>", unsafe_allow_html=True)
-            with m4:
-                sig_labels = {"STRONG BUY": "#238636", "BUY": "#2ea043", "HOLD": "#8b949e", "SELL": "#da3633", "STRONG SELL": "#f85149"}
-                curr_sig = latest_row['Signal']
-                bg_sig_color = sig_labels.get(curr_sig, "#161b22")
-                st.markdown(f"**Signal**<br><div style='background-color:{bg_sig_color}; padding:8px; border-radius:5px; text-align:center; color:white; font-weight:bold; margin-top:5px;'>{curr_sig}</div>", unsafe_allow_html=True)
+            with m1: st.metric(label=f"{index_name} LTP", value=f"{round(ltp, 2)}", delta=f"{round(change, 2)}")
+            with m2: st.markdown(f"**Trend**<br><h3>{trend_str}</h3>", unsafe_allow_html=True)
+            with m3: st.markdown(f"**Sentiment**<br><h3 style='color: {sentiment_color};'>{sentiment}</h3>", unsafe_allow_html=True)
+            with m4: st.markdown(f"**Signal**<br><div style='background-color:#1f242c; padding:5px; border-radius:5px; text-align:center; font-weight:bold;'>{latest_row['Signal']}</div>", unsafe_allow_html=True)
 
             st.divider()
-            
-            # CORE TRADINGVIEW MULTI-LAYER WORKSPACE
             chart_fig = plot_tradingview_chart(final_df, fib_levels, bin_centers, volumes, s_top, s_bot, d_top, d_bot)
-            st.plotly_chart(chart_fig, use_container_width=True, key=f"chart_{index_name}_{tf_selection}")
-            
-            st.divider()
-            
-            col_b1, col_b2 = st.columns([1, 1])
-            with col_b1:
-                st.markdown("### 🧮 Institutional Order Block Boundaries")
-                st.write(f"🔴 **Supply Box Range (Resistance):** `{round(s_bot, 2)}` - `{round(s_top, 2)}`")
-                st.write(f"🟢 **Demand Box Range (Support):** `{round(d_bot, 2)}` - `{round(d_top, 2)}`")
-                
-            with col_b2:
-                st.markdown("### 📑 Signal History Log")
-                log_df = final_df[final_df['Signal'] != "HOLD"][['Close', 'RSI', 'Signal']].tail(5)
-                if not log_df.empty:
-                    st.dataframe(log_df.iloc[::-1], use_container_width=True)
+            st.plotly_chart(chart_fig, use_container_width=True, key=f"chart_{index_name}")
 
-    # 30-Second Refresh Cycle Loop Injection
-    st.markdown("""
-        <script>
-            setTimeout(function(){
-                window.location.reload();
-            }, 30000);
-        </script>
-    """, unsafe_allow_html=True)
+    # Auto refresh every 10 seconds to keep live data ticking smoothly
+    st.markdown("<script>floatRefresh = setTimeout(function(){ window.location.reload(); }, 10000);</script>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
