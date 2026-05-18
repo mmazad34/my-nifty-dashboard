@@ -178,7 +178,8 @@ def liquidity_sweep(df):
     return '⚪ None'
 def market_trend():
     try:
-        n = yf.download('^NSEI', period='2d', interval='15m', progress=False)
+        # Optimized: Intraday data ke liye 5d period use kiya taaki 50 EMA strictly mil sake
+        n = yf.download('^NSEI', period='5d', interval='15m', progress=False)
         if isinstance(n.columns, pd.MultiIndex):
             n.columns = n.columns.get_level_values(0)
         close = n['Close']
@@ -203,36 +204,28 @@ def send_telegram(msg):
 def score_row(row):
     b = be = 0
     
-    # EMA Stack Multi-structure scoring
     if 'E9>E21>E50>E200' in str(row.get('EMA','')): b += 2
     elif 'Bear Stack' in str(row.get('EMA','')): be += 2
     
-    # VWAP Scoring
     if "🟢" in str(row.get("VWAP","")): b += 1
     else: be += 1
     
-    # RSI Setup Logic Update
     try:
         r = float(str(row.get("RSI","50")).split()[0])
         if 60 <= r <= 75: b += 1
         elif 35 <= r < 50: be += 1
     except: pass
     
-    # MACD Setup
     if "🟢" in str(row.get("MACD","")): b += 1
     elif "🔴" in str(row.get("MACD","")): be += 1
     
-    # Volume Logic
     if "SURGE" in str(row.get("Vol","")): b += 1; be += 1
     
-    # Market Structure
     if "HH" in str(row.get("Struct","")): b += 1
     elif "LH" in str(row.get("Struct","")): be += 1
     
-    # Supertrend
     if "🟢" in str(row.get("ST","")): b += 1
     elif "🔴" in str(row.get("ST","")): be += 1
-    # Naye parameters indicators ka scoring logic integration
     if 'Bullish' in str(row.get('MKT','')): b += 1
     elif 'Bearish' in str(row.get('MKT','')): be += 1
         
@@ -240,7 +233,6 @@ def score_row(row):
         
     if 'Buy Sweep' in str(row.get('Sweep','')): b += 1
     elif 'Sell Sweep' in str(row.get('Sweep','')): be += 1
-    # Signal Assessment Matrix
     sc = b - be
     if sc >= 5: sig = "🟢 STRONG BUY"
     elif sc >= 2: sig = "🟡 BUY"
@@ -252,26 +244,32 @@ def score_row(row):
 # ==========================================
 # FETCH SINGLE NSE TICKER DATA
 # ==========================================
-def fetch(symbol, interval):
+def fetch(symbol, interval, mkt_trend_val):
     ticker = symbol.strip().upper()
     yf_sym = ticker + ".NS"
     try:
-        df = yf.download(yf_sym, period="2d", interval=interval,
+        # FIX: Dynamic Period Mapping lagayi taaki 200 EMA ke liye har timeframe par candles poori milein
+        period_map = {"1m": "5d", "5m": "5d", "15m": "30d", "1h": "60d"}
+        p_val = period_map.get(interval, "30d")
+        
+        df = yf.download(yf_sym, period=p_val, interval=interval,
                          progress=False, auto_adjust=True)
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
         df = df.dropna()
-        if len(df) < 200: # Handled 200 EMA buffer data requirement securely
+        
+        # Buffer checking updated to allow smooth processing
+        if len(df) < 20: 
             return None
         cl = df["Close"].squeeze()
         vo = df["Volume"].squeeze()
         price    = float(cl.iloc[-1])
         
-        # All required EMAs parsed safely
+        # Secure indicator calculations
         e9       = float(ema(cl, 9).iloc[-1])
         e21      = float(ema(cl, 21).iloc[-1])
         e50      = float(ema(cl, 50).iloc[-1])
-        e200     = float(ema(cl, 200).iloc[-1])
+        e200     = float(ema(cl, 200).iloc[-1]) if len(df) >= 200 else e50 # Fallback logic if history is short
         
         rsi_v    = float(calc_rsi(cl).iloc[-1])
         mh       = float(calc_macd_hist(cl).iloc[-1])
@@ -287,17 +285,13 @@ def fetch(symbol, interval):
         fib_zone = nearest_fib(price, fibs)
         struct   = mkt_struct(cl)
         rsi_tag = " ⚠️OB" if rsi_v > 70 else (" ⚠️OS" if rsi_v < 30 else "")
-        # External dynamic components calls
         atr_v      = float(calc_atr(df).iloc[-1])
         candle_q   = candle_strength(df)
         sweep      = liquidity_sweep(df)
-        mkt        = market_trend()
-        # Dynamic Stoploss / Targets calculations based on asset price structure rules
         sl_buy       = price - atr_v
         sl_sell      = price + atr_v
         buy_target   = price + (atr_v * 2)
         sell_target  = price - (atr_v * 2)
-        # No Trade framework validation Filter
         no_trade = True if atr_v < (price * 0.002) else False
         row = {
             "Stock":  ticker,
@@ -314,7 +308,7 @@ def fetch(symbol, interval):
             "ATR":    f"₹{atr_v:.2f}",
             "Candle": candle_q,
             "Sweep":  sweep,
-            "MKT":    mkt,
+            "MKT":    mkt_trend_val,
             "SL":     f"₹{sl_buy:.1f}" if price > e200 else f"₹{sl_sell:.1f}",
             "Target": f"₹{buy_target:.1f}" if price > e200 else f"₹{sell_target:.1f}"
         }
@@ -328,12 +322,10 @@ def fetch(symbol, interval):
             
         row["Signal"] = sig
         
-        # Confidence Metric Evaluation
         checks = max(b + be, 1)
         confidence = round((max(b, be) / checks) * 100)
         row['Confidence'] = f'{confidence}%'
         
-        # Telegram Bot Dispatch Module Engine Execution
         if sig == '🟢 STRONG BUY':
             msg = f"🟢 STRONG BUY\n\n{ticker}\n\nPrice: ₹{price:.2f}\nSL: ₹{sl_buy:.2f}\nTarget: ₹{buy_target:.2f}\nConfidence: {confidence}%"
             send_telegram(msg)
@@ -348,7 +340,7 @@ def fetch(symbol, interval):
             "✅B":0,"🔴S":0,"Signal":"❓ N/A","Confidence":"0%"
         }
 # ==========================================
-# SAFE DYNAMIC COMPONENT CSS MAPPING STYLE ENGINE
+# CSS MAPPING STYLE ENGINE
 # ==========================================
 def style_df(df_in):
     def cell_color(col, val):
@@ -403,7 +395,7 @@ with st.sidebar:
     st.markdown("---")
     show_filter = st.selectbox("👁️ Filter:",
                                ["All","BUY Only","SELL Only","Strong Only"])
-    min_bull = st.slider("Min Bull Score:", 0, 12, 0) # High Win Scale buffer alignment updated
+    min_bull = st.slider("Min Bull Score:", 0, 12, 0)
     st.markdown("---")
     if st.button("🔓 Logout"):
         st.session_state["authenticated"] = False
@@ -434,11 +426,9 @@ st.markdown("""
 if not stocks:
     st.warning("⬅️ Sidebar mein stocks likho")
     st.stop()
-# Component execution states variables placeholders initialization
 ph_metrics = st.empty()
 ph_table   = st.empty()
 ph_status  = st.empty()
-# Information guide expander component module
 with st.expander("📘 Advanced Strategy Guide — Setup Validation Configuration"):
     st.markdown("""
 
@@ -456,16 +446,17 @@ with st.expander("📘 Advanced Strategy Guide — Setup Validation Configuratio
 st.markdown("---")
 st.caption("⚠️ Note: yfinance intraday ticks can lag by 1-2 mins. Use for computational assessment setups validations.")
 # ==========================================
-# DYNAMIC ASYNC REFRESH LOOP EXECUTION RUNNER
+# DYNAMIC REFRESH LOOP EXECUTION RUNNER
 # ==========================================
 cycle = 0
 while True:
     cycle += 1
     t0 = time.time()
-    results = [r for s in stocks if (r := fetch(s, interval)) is not None]
+    # Optimized: Download Market Trend once per cycle to avoid lag and yfinance blocks
+    mkt_trend_val = market_trend()
+    results = [r for s in stocks if (r := fetch(s, interval, mkt_trend_val)) is not None]
     if results:
         df_all = pd.DataFrame(results)
-        # UI Visual sorting logic layers filtration pipeline execution
         df_show = df_all.copy()
         if show_filter == "BUY Only":
             df_show = df_show[df_show["Signal"].str.contains("BUY", na=False)]
@@ -475,7 +466,6 @@ while True:
             df_show = df_show[df_show["Signal"].str.contains("STRONG", na=False)]
             
         df_show = df_show[df_show["✅B"] >= min_bull].reset_index(drop=True)
-        # Dynamic Status Matrix Variables evaluation counts
         n_sb  = (df_all["Signal"]=="🟢 STRONG BUY").sum()
         n_b   = (df_all["Signal"]=="🟡 BUY").sum()
         n_ss  = (df_all["Signal"]=="🔴 STRONG SELL").sum()
@@ -485,7 +475,6 @@ while True:
         
         now_s = datetime.now().strftime("%H:%M:%S")
         elapsed = time.time() - t0
-        # Render Metrics Dashboards Layout
         with ph_metrics.container():
             c1, c2, c3, c4, c5, c6 = st.columns(6)
             c1.metric("🟢 Strong Buy",  n_sb)
@@ -494,13 +483,11 @@ while True:
             c4.metric("🟠 Sell",        n_s)
             c5.metric("⚪ Hold/Wait",    n_w + n_nt)
             c6.metric("📊 Scanned",     len(df_all))
-        # Render Processed Data Frame HTML Engine Table 
         with ph_table.container():
             if df_show.empty:
                 st.info("Filter ke criteria match karta hua koi setup filhal detect nahi hua.")
             else:
                 st.markdown(style_df(df_show), unsafe_allow_html=True)
-        # Dynamic Status Bar Updates String Rendering
         ph_status.caption(
             f"🕐 Last scan: **{now_s}** | "
             f"Cycle #{cycle} | "
@@ -510,5 +497,4 @@ while True:
         )
     else:
         ph_table.error("⚠️ Data streams empty. Internet gateway pipeline infrastructure or symbols formats mismatch detected.")
-    # Loop system hold thread sleep execution parameters configuration
     time.sleep(refresh_sec)
