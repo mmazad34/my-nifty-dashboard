@@ -409,13 +409,24 @@ while True:
 
         cols_to_color = [c for c in ["EMA","VWAP","MACD","ST","PDH","Volume","Struct"] if c in df_show.columns]
 
-        styled = (
-            df_show.style
-            .applymap(style_signal, subset=["Signal"])
-            .applymap(style_cell,   subset=cols_to_color)
-            .set_properties(**{"font-size": "12.5px", "font-family": "Courier New"})
-            .hide(axis="index")
-        )
+        # pandas >= 2.1 mein applymap deprecated — map() use karo
+        try:
+            styled = (
+                df_show.style
+                .map(style_signal, subset=["Signal"])
+                .map(style_cell,   subset=cols_to_color)
+                .set_properties(**{"font-size": "12.5px", "font-family": "Courier New"})
+                .hide(axis="index")
+            )
+        except AttributeError:
+            # fallback for older pandas
+            styled = (
+                df_show.style
+                .applymap(style_signal, subset=["Signal"])
+                .applymap(style_cell,   subset=cols_to_color)
+                .set_properties(**{"font-size": "12.5px", "font-family": "Courier New"})
+                .hide(axis="index")
+            )
 
         # Summary counts
         n_sbuy  = len(df_all[df_all["Signal"] == "🟢 STRONG BUY"])
