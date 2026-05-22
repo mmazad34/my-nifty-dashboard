@@ -1,3 +1,21 @@
+# DEBUG - secrets aur API test (baad mein hata dena)
+with st.expander("🔧 API Debug"):
+    st.write("Token present:", bool(st.secrets.get("DHAN_ACCESS_TOKEN")))
+    st.write("Client ID:", st.secrets.get("DHAN_CLIENT_ID", "MISSING"))
+    
+    if st.button("Test Dhan API - RELIANCE"):
+        r = requests.post(
+            "https://api.dhan.co/v2/marketfeed/ltp",
+            json={"NSE_EQ": [2885]},
+            headers={
+                "access-token": st.secrets["DHAN_ACCESS_TOKEN"],
+                "client-id":    st.secrets["DHAN_CLIENT_ID"],
+                "Content-Type": "application/json",
+            },
+            timeout=5,
+        )
+        st.write("Status:", r.status_code)
+        st.write("Response:", r.json())
 # ============================================================
 # INTRADAY CONFLUENCE SCREENER - DHAN ONLY v5.0
 # Sirf Dhan API - yfinance completely removed
